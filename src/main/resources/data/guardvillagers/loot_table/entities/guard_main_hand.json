@@ -6,15 +6,22 @@
       "entries": [
         {
           "type": "minecraft:item",
-          "name": "minecraft:iron_sword"
+          "name": "minecraft:iron_sword",
+          "weight": 10
         },
         {
-          "type": "minecraft:item",
-          "name": "minecraft:crossbow"
-        },
-        {
-          "type": "minecraft:item",
-          "name": "minecraft:bow"
+          "type": "minecraft:group",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "name": "minecraft:bow"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "minecraft:crossbow"
+            }
+          ],
+          "weight": 6
         },
         {
           "type": "minecraft:group",
@@ -32,7 +39,7 @@
               "name": "wizards:wand_fire"
             }
           ],
-          "weight": 5
+          "weight": 2
         },
         {
           "type": "minecraft:group",

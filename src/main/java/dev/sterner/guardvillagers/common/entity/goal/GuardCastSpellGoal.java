@@ -96,11 +96,10 @@ public class GuardCastSpellGoal extends Goal {
     private float getCooldownMultiplier(Identifier spellId) {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
 
-        // Apply reduced cooldown ONLY for fallback basic spells used with special staffs
-        if ((key.contains("staff_ruby_fire") && spellId.getPath().equals("fireball")) ||
+         if ((key.contains("staff_ruby_fire") && spellId.getPath().equals("fireball")) ||
                 (key.contains("staff_smaragdant_frost") && spellId.getPath().equals("frost_shard")) ||
                 (key.contains("staff_crystal_arcane") && spellId.getPath().equals("arcane_bolt"))) {
-            return 0.33f; // 1/3 cooldown
+            return 0.33f;
         }
 
         return 1.0f;
@@ -124,15 +123,15 @@ public class GuardCastSpellGoal extends Goal {
         float forward = 0.0F;
         float sideways = 0.0F;
 
-// Randomly sidestep during ranged engagement phases
+
         if (spellState == SpellState.CHARGING || spellState == SpellState.CHARGED || spellState == SpellState.COOLDOWN) {
             if (guard.getRandom().nextInt(10) == 0) {
                 sideways = guard.getRandom().nextBoolean() ? 0.5F : -0.5F;
             }
-            forward = guard.isUsingItem() ? -0.5F : -0.1F; // slow backpedal while charging
+            forward = guard.isUsingItem() ? -0.5F : -0.1F;
             guard.getMoveControl().strafeTo(sideways, forward);
         }
-        // Strafing and pose behavior
+
         if (distance <= 4.0D) {
             guard.getMoveControl().strafeTo(guard.isUsingItem() ? -0.5F : -3.0F, 0.0F);
         }
@@ -144,7 +143,7 @@ public class GuardCastSpellGoal extends Goal {
                 guard.setPose(EntityPose.STANDING);
         }
 
-        // Navigation and positioning
+
         boolean needsToMove = (distanceSq > ATTACK_RADIUS_SQR || this.seeTime < 5) && this.cooldownTicks == 0;
         if (needsToMove) {
             --this.updatePathDelay;
@@ -160,7 +159,7 @@ public class GuardCastSpellGoal extends Goal {
         guard.lookAtEntity(target, 30.0F, 30.0F);
         guard.getLookControl().lookAt(target, 30.0F, 30.0F);
 
-        // Friendly fire safety
+
         if (this.friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire) {
             this.spellState = SpellState.FIND_NEW_POSITION;
         }
@@ -237,7 +236,7 @@ public class GuardCastSpellGoal extends Goal {
                 if (isChanneled) {
                     if (channelTicksLeft > 0) {
                         if (channelTicksLeft == getChannelDuration(spell)) {
-                            // First tick: fire immediately
+
                             castSpellByWandType(spell, cachedSpellEntry, target);
                             castingDelayTicks = getChannelFireInterval(spell);
                             channelTicksLeft--;
@@ -421,7 +420,6 @@ public class GuardCastSpellGoal extends Goal {
             castBasicProjectile(target);
         }
 
-        // Play release sound if defined
         if (spell.release != null && spell.release.sound != null) {
             Identifier soundId = Identifier.tryParse(spell.release.sound.id());
             if (soundId != null) {

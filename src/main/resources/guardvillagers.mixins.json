@@ -5,7 +5,9 @@
   "mixins": [
     "MobEntityMixin",
     "ServerWorldMixin",
-    "VillagerTaskListProviderMixin"
+    "VillagerTaskListProviderMixin",
+    "accessor.CrossbowItemAccessor",
+    "GuardFriendlyFireMixin"
   ],
   "injectors": {
     "defaultRequire": 1

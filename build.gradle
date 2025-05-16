@@ -1,5 +1,5 @@
 plugins {
-	id 'fabric-loom' version '1.6-SNAPSHOT'
+	id 'fabric-loom' version "${loom_version}"
 	id 'maven-publish'
 }
 
@@ -10,39 +10,46 @@ base {
 	archivesName = project.archives_base_name
 }
 
+repositories {
+	maven {
+		name = 'Modrinth'
+		url = 'https://api.modrinth.com/maven'
+		content {
+			includeGroup 'maven.modrinth'
+		}
+	}
+	maven {
+		name = 'Jitpack'
+		url = 'https://jitpack.io'
+	}
+	maven {
+		name = 'Shedaniel'
+		url = 'https://maven.shedaniel.me/'
+	}
+}
 loom {
 	accessWidenerPath = file("src/main/resources/guardvillagers.accesswidener")
 }
-
-repositories {
-	maven {
-		url = "https://api.modrinth.com/maven"
-	}
-	maven {
-		url = "https://jitpack.io"
-	}
-	maven { url = "https://maven.shedaniel.me/" }
-}
-
 dependencies {
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
 	mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
 	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
 
+	// Fabric API
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
 
-	//MidnightLib
-	modImplementation include ("maven.modrinth:midnightlib:${project.midnightlib_version}")
-
-	//modImplementation include("com.electronwill.night-config:core:${project.night_config_version}")
-
+	// Modrinth Mods
+	modImplementation("maven.modrinth:spell-power:${project.spell_power_version}")
+	modImplementation("maven.modrinth:spell-engine:${project.spell_engine_version}")
+	modImplementation include("maven.modrinth:midnightlib:${project.midnightlib_version}")
+	// modImplementation include("com.electronwill.night-config:core:${project.night_config_version}")
 }
 
 processResources {
 	inputs.property "version", project.version
 
 	filesMatching("fabric.mod.json") {
-		expand "version": project.version
+		expand "version": inputs.properties.version
 	}
 }
 
@@ -52,24 +59,27 @@ tasks.withType(JavaCompile).configureEach {
 
 java {
 	withSourcesJar()
-
 	sourceCompatibility = JavaVersion.VERSION_17
 	targetCompatibility = JavaVersion.VERSION_17
 }
 
 jar {
+	inputs.property "archivesName", project.base.archivesName
+
 	from("LICENSE") {
-		rename { "${it}_${project.base.archivesName.get()}"}
+		rename { "${it}_${inputs.properties.archivesName}" }
 	}
 }
 
 publishing {
 	publications {
-		mavenJava(MavenPublication) {
+		create("mavenJava", MavenPublication) {
+			artifactId = project.archives_base_name
 			from components.java
 		}
 	}
 
 	repositories {
+		// Add publishing repositories here
 	}
 }

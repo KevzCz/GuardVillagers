@@ -11,6 +11,46 @@
         {
           "type": "minecraft:item",
           "name": "minecraft:crossbow"
+        },
+        {
+          "type": "minecraft:item",
+          "name": "minecraft:bow"
+        },
+        {
+          "type": "minecraft:group",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "name": "wizards:wand_frost"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "wizards:wand_arcane"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "wizards:wand_fire"
+            }
+          ],
+          "weight": 5
+        },
+        {
+          "type": "minecraft:group",
+          "children": [
+            {
+              "type": "minecraft:item",
+              "name": "wizards:wand_netherite_frost"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "wizards:wand_netherite_arcane"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "wizards:wand_netherite_fire"
+            }
+          ],
+          "weight": 1
         }
       ]
     }

@@ -52,6 +52,8 @@ import net.minecraft.loot.context.LootContextParameters;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtOps;
+import net.minecraft.network.packet.s2c.play.EntityEquipmentUpdateS2CPacket;
+import net.minecraft.registry.Registry;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.RegistryWrapper;
@@ -72,9 +74,11 @@ import net.minecraft.village.VillagerGossips;
 import net.minecraft.village.VillagerType;
 import net.minecraft.world.*;
 import org.jetbrains.annotations.Nullable;
+import com.mojang.datafixers.util.Pair;
 
 import java.util.*;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 public class GuardEntity extends PathAwareEntity implements CrossbowUser, RangedAttackMob, Angerable, InventoryChangedListener, InteractionObserver {
     protected static final TrackedData<Optional<UUID>> OWNER_UNIQUE_ID = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.OPTIONAL_UUID);
@@ -107,6 +111,16 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     public boolean spawnWithArmor;
     private int remainingPersistentAngerTime;
     private UUID persistentAngerTarget;
+    private boolean castingSpell = false;
+    public Queue<Pair<Integer, Runnable>> delayedTasks = new LinkedList<>();
+
+    public boolean isCastingSpell() {
+        return castingSpell;
+    }
+
+    public void setCastingSpell(boolean casting) {
+        this.castingSpell = casting;
+    }
 
     public GuardEntity(EntityType<? extends GuardEntity> type, World world) {
         super(type, world);
@@ -462,6 +476,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
                     this.equipStack(equipmentslottype, stack);
                 }
             }
+            this.applyRobesBasedOnWand();
             this.spawnWithArmor = false;
         }
         if (!getWorld().isClient) this.tickAngerLogic((ServerWorld) getWorld(), true);
@@ -473,7 +488,85 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     public void tick() {
         this.maybeDecayGossip();
         super.tick();
+        if (!this.getWorld().isClient) {
+            delayedTasks = delayedTasks.stream().map(pair -> {
+                int ticksLeft = pair.getFirst() - 1;
+                if (ticksLeft <= 0) {
+                    pair.getSecond().run();
+                    return null; // Mark for removal
+                }
+                return new Pair<>(ticksLeft, pair.getSecond()); // Replace old pair with new one
+            }).filter(Objects::nonNull).collect(Collectors.toCollection(LinkedList::new));
+        }
     }
+
+    private void applyRobesBasedOnWand() {
+        Item wand = this.getMainHandStack().getItem();
+
+        String prefix = null;
+        if (wand.getTranslationKey().contains("wand_fire")) {
+            prefix = "wizards:fire_robe_";
+        } else if (wand.getTranslationKey().contains("wand_frost")) {
+            prefix = "wizards:frost_robe_";
+        } else if (wand.getTranslationKey().contains("wand_arcane")) {
+            prefix = "wizards:arcane_robe_";
+        }
+
+        if (prefix != null && getWorld() instanceof ServerWorld serverWorld) {
+            equipRobes(prefix, serverWorld);
+        }
+    }
+
+    private void equipRobes(String prefix, ServerWorld serverWorld) {
+        Registry<Item> itemRegistry = serverWorld.getRegistryManager().get(RegistryKeys.ITEM);
+        Map<EquipmentSlot, String> armorSlots = Map.of(
+                EquipmentSlot.HEAD, prefix + "head",
+                EquipmentSlot.CHEST, prefix + "chest",
+                EquipmentSlot.LEGS, prefix + "legs",
+                EquipmentSlot.FEET, prefix + "feet"
+        );
+
+        for (Map.Entry<EquipmentSlot, String> entry : armorSlots.entrySet()) {
+            EquipmentSlot slot = entry.getKey();
+            int invIndex = switch (slot) {
+                case HEAD -> 0;
+                case CHEST -> 1;
+                case LEGS -> 2;
+                case FEET -> 3;
+                default -> -1;
+            };
+
+            if (invIndex == -1) continue;
+
+            if (!guardInventory.getStack(invIndex).isEmpty()) {
+                Identifier robeId = Identifier.tryParse(entry.getValue());
+                if (robeId != null && itemRegistry.containsId(robeId)) {
+                    ItemStack robe = new ItemStack(itemRegistry.get(robeId));
+
+                    this.equipStack(slot, robe); // updates hand/armorItems
+                    this.guardInventory.setStack(invIndex, robe); // updates guardInventory
+
+                    // Sync the updated equipment slot to all nearby players
+                    if (!this.getWorld().isClient()) {
+                        ((ServerWorld) this.getWorld()).getChunkManager().sendToNearbyPlayers(
+                                this,
+                                new EntityEquipmentUpdateS2CPacket(
+                                        this.getId(),
+                                        List.of(new Pair<>(slot, robe))
+
+                                )
+
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    public boolean isWindingUpSpell() {
+        return this.isCastingSpell() && this.getActiveItem().isEmpty();
+    }
+
 
     @Override
     protected EntityDimensions getBaseDimensions(EntityPose pose) {
@@ -598,7 +691,8 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         this.goalSelector.add(0, new RaiseShieldGoal(this));
         this.goalSelector.add(1, new GuardRunToEatGoal(this));
         this.goalSelector.add(2, new RangedCrossbowAttackPassiveGoal<>(this, 1.0D, 8.0F));
-        this.goalSelector.add(3, new RangedBowAttackPassiveGoal<GuardEntity>(this, 0.5D, 20, 15.0F) {
+        this.goalSelector.add(2, new GuardCastSpellGoal(this));
+        this.goalSelector.add(2, new RangedBowAttackPassiveGoal<GuardEntity>(this, 0.5D, 20, 15.0F) {
             @Override
             public boolean canStart() {
                 return GuardEntity.this.getTarget() != null && this.isBowInMainhand() && !GuardEntity.this.isEating() && !GuardEntity.this.isBlocking();
@@ -666,7 +760,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
             this.shoot(this, 6.0F);
         if (this.getMainHandStack().getItem() instanceof BowItem) {
             ItemStack itemStack = this.getProjectileType(this.getStackInHand(ProjectileUtil.getHandPossiblyHolding(this, Items.BOW)));
-            ItemStack hand = this.getActiveItem();
+            ItemStack hand = this.getStackInHand(ProjectileUtil.getHandPossiblyHolding(this, Items.BOW));
             ItemEnchantmentsComponent itemEnchantmentsComponent = EnchantmentHelper.getEnchantments(itemStack);
             PersistentProjectileEntity persistentProjectileEntity = ProjectileUtil.createArrowProjectile(this, itemStack, pullProgress, hand);
             RegistryWrapper.Impl<Enchantment> impl = this.getRegistryManager().getWrapperOrThrow(RegistryKeys.ENCHANTMENT);
@@ -787,7 +881,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
 
     @Override
     public void setCharging(boolean charging) {
-
+        this.setChargingCrossbow(charging);
     }
 
     @Override
@@ -1029,12 +1123,12 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
 
         @Override
         public boolean canStart() {
-            return !(this.guard.getMainHandStack().getItem() instanceof CrossbowItem) && this.guard.getTarget() != null && !this.guard.isEating() && super.canStart();
+            return !(this.guard.getMainHandStack().getItem() instanceof CrossbowItem) && this.guard.getTarget() != null && !guard.isCastingSpell() && !this.guard.isEating() && super.canStart();
         }
 
         @Override
         public boolean shouldContinue() {
-            return super.shouldContinue() && this.guard.getTarget() != null;
+            return super.shouldContinue() && !guard.isCastingSpell() && this.guard.getTarget() != null;
         }
 
         @Override

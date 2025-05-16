@@ -22,8 +22,12 @@ public class RaiseShieldGoal extends Goal {
 
     @Override
     public boolean canStart() {
-        return !CrossbowItem.isCharged(guard.getMainHandStack()) && (guard.getOffHandStack().getItem() == Items.SHIELD && raiseShield() && guard.shieldCoolDown == 0);
+        if (guard.isCastingSpell()) return false;
+        return !CrossbowItem.isCharged(guard.getMainHandStack()) &&
+                guard.getOffHandStack().getItem() == Items.SHIELD &&
+                raiseShield() && guard.shieldCoolDown == 0;
     }
+
 
     @Override
     public boolean shouldContinue() {

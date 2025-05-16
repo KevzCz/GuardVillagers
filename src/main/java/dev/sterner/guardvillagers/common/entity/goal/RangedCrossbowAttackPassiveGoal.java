@@ -3,16 +3,19 @@ package dev.sterner.guardvillagers.common.entity.goal;
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.GuardVillagersConfig;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.mixin.accessor.CrossbowItemAccessor;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
 import net.minecraft.entity.ai.RangedAttackMob;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.mob.PathAwareEntity;
+import net.minecraft.entity.projectile.ProjectileEntity;
 import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.entity.raid.RaiderEntity;
 import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
+import net.minecraft.util.Hand;
 import net.minecraft.util.TimeHelper;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.util.math.intprovider.UniformIntProvider;
@@ -154,7 +157,21 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
                     this.crossbowState = CrossbowState.READY_TO_ATTACK;
                 }
             } else if (this.crossbowState == CrossbowState.READY_TO_ATTACK && canSee) {
-                this.mob.shootAt(livingentity, 1.0F);
+                ItemStack crossbowStack = this.mob.getStackInHand(GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem));
+                Hand hand = GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem);
+                CrossbowItem crossbowItem = (CrossbowItem) crossbowStack.getItem();
+
+                ((CrossbowItemAccessor) crossbowItem).callShootAll(
+                        this.mob.getWorld(),
+                        this.mob,
+                        hand,
+                        crossbowStack,
+                        2F,        // velocity (vanilla)
+                        1.0F,         // divergence (vanilla)
+                        livingentity  // target
+                );
+
+
                 ItemStack itemstack1 = this.mob.getStackInHand(GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem));
                 ((LivingEntity)this.mob).setCurrentHand(ProjectileUtil.getHandPossiblyHolding(livingentity, Items.CROSSBOW));
                 ((CrossbowUser)this.mob).setCharging(false);

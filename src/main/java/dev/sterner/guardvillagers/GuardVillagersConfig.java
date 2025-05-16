@@ -44,7 +44,7 @@ public class GuardVillagersConfig extends MidnightConfig {
     @Entry
     public static boolean setGuardPatrolHotv = false;
     @Entry
-    public static float chanceToDropEquipment = 100F;
+    public static float chanceToDropEquipment = 0F;
     @Entry
     public static boolean useSteveModel = false;
     @Entry

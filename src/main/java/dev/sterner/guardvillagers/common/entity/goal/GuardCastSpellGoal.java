@@ -36,6 +36,8 @@ public class GuardCastSpellGoal extends Goal {
     private final Map<Identifier, Integer> spellCooldowns = new HashMap<>();
     private int castingDelayTicks;
     private Identifier currentSpellId;
+    private RegistryEntry<Spell> cachedSpellEntry;
+
     private boolean spellFired;
     private final GuardEntity guard;
     private int seeTime;
@@ -88,6 +90,8 @@ public class GuardCastSpellGoal extends Goal {
         this.guard.getNavigation().stop();
         this.spellState = SpellState.UNCHARGED;
         this.seeTime = 0;
+        this.cachedSpellEntry = null;
+
     }
     private float getCooldownMultiplier(Identifier spellId) {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
@@ -177,12 +181,13 @@ public class GuardCastSpellGoal extends Goal {
                     Identifier spellId = getPrimarySpellId();
                     if (spellId == null || isSpellOnCooldown(spellId)) return;
 
-                    RegistryEntry<Spell> spellEntry = SpellRegistry.from(guard.getWorld()).getEntry(spellId).orElse(null);
-                    if (spellEntry == null) return;
+                    cachedSpellEntry = SpellRegistry.from(guard.getWorld()).getEntry(spellId).orElse(null);
+                    if (cachedSpellEntry == null) return;
 
-                    Spell spell = spellEntry.value();
-                    windUpTicks = getWindUpTicks(spell);  // ← dynamic wind-up!
+                    Spell spell = cachedSpellEntry.value();
+                    windUpTicks = getWindUpTicks(spell);
                     currentSpellId = spellId;
+
 
                     guard.setCurrentHand(Hand.MAIN_HAND);
                     guard.setCastingSpell(true);
@@ -205,10 +210,10 @@ public class GuardCastSpellGoal extends Goal {
                 Identifier spellId = getPrimarySpellId();
                 if (spellId == null || isSpellOnCooldown(spellId)) return;
 
-                RegistryEntry<Spell> spellEntry = SpellRegistry.from(guard.getWorld()).getEntry(spellId).orElse(null);
-                if (spellEntry == null) return;
+                if (cachedSpellEntry == null) return;
 
-                Spell spell = spellEntry.value();
+                Spell spell = cachedSpellEntry.value();
+
                 currentSpellId = spellId;
                 isChanneled = isSpellChanneled(spell);
                 channelTicksLeft = getChannelDuration(spell);
@@ -224,23 +229,21 @@ public class GuardCastSpellGoal extends Goal {
 
             case CASTING -> {
                 Identifier spellId = currentSpellId;
-                if (spellId == null) return;
+                if (currentSpellId == null || cachedSpellEntry == null) return;
 
-                RegistryEntry<Spell> spellEntry = SpellRegistry.from(guard.getWorld()).getEntry(spellId).orElse(null);
-                if (spellEntry == null) return;
+                Spell spell = cachedSpellEntry.value();
 
-                Spell spell = spellEntry.value();
 
                 if (isChanneled) {
                     if (channelTicksLeft > 0) {
                         if (channelTicksLeft == getChannelDuration(spell)) {
                             // First tick: fire immediately
-                            castSpellByWandType(spell, spellEntry, target);
+                            castSpellByWandType(spell, cachedSpellEntry, target);
                             castingDelayTicks = getChannelFireInterval(spell);
                             channelTicksLeft--;
                         } else {
                             if (--castingDelayTicks <= 0) {
-                                castSpellByWandType(spell, spellEntry, target);
+                                castSpellByWandType(spell, cachedSpellEntry, target);
                                 castingDelayTicks = getChannelFireInterval(spell);
                             }
                             channelTicksLeft--;
@@ -257,7 +260,7 @@ public class GuardCastSpellGoal extends Goal {
                     }
                 } else {
                     if (!spellFired) {
-                        castSpellByWandType(spell, spellEntry, target);
+                        castSpellByWandType(spell, cachedSpellEntry, target);
                         spellFired = true;
                     } else {
                         guard.stopUsingItem();

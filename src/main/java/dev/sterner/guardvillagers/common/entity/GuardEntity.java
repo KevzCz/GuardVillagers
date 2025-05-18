@@ -647,7 +647,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         return this.dataTracker.get(DATA_CHARGING_STATE);
     }
 
-    public void setChargingCrossbow(boolean charging) {
+    public void setChargingCrossbowGuard(boolean charging) {
         this.dataTracker.set(DATA_CHARGING_STATE, charging);
     }
 
@@ -881,7 +881,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
 
     @Override
     public void setCharging(boolean charging) {
-        this.setChargingCrossbow(charging);
+        this.setChargingCrossbowGuard(charging);
     }
 
     @Override

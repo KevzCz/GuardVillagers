@@ -96,9 +96,9 @@ public class GuardCastSpellGoal extends Goal {
     private float getCooldownMultiplier(Identifier spellId) {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
 
-         if ((key.contains("staff_ruby_fire") && spellId.getPath().equals("fireball")) ||
-                (key.contains("staff_smaragdant_frost") && spellId.getPath().equals("frost_shard")) ||
-                (key.contains("staff_crystal_arcane") && spellId.getPath().equals("arcane_bolt"))) {
+         if ((key.contains("staff_ruby_fire") && spellId.getPath().equals("twin_fireball")) ||
+                (key.contains("staff_smaragdant_frost") && spellId.getPath().equals("twin_frostshard")) ||
+                (key.contains("staff_crystal_arcane") && spellId.getPath().equals("twin_arcanebolt"))) {
             return 0.33f;
         }
 
@@ -337,9 +337,9 @@ public class GuardCastSpellGoal extends Goal {
     }
     private Identifier getSpellIdForWand() {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
-        if (key.contains("wand_fire") || key.contains("staff_fire")) return Identifier.of("wizards", "fireball");
-        if (key.contains("wand_frost") || key.contains("staff_frost")) return Identifier.of("wizards", "frost_shard");
-        if (key.contains("wand_arcane") || key.contains("staff_arcane")) return Identifier.of("wizards", "arcane_bolt");
+        if (key.contains("wand_fire") || key.contains("staff_fire")) return Identifier.of("wizards", "twin_fireball");
+        if (key.contains("wand_frost") || key.contains("staff_frost")) return Identifier.of("wizards", "twin_frostshard");
+        if (key.contains("wand_arcane") || key.contains("staff_arcane")) return Identifier.of("wizards", "twin_arcanebolt");
         if (key.contains("wand_netherite_fire") || key.contains("staff_netherite_fire") || key.contains("staff_ruby_fire")) return Identifier.of("wizards", "fire_meteor");
         if (key.contains("wand_netherite_frost") || key.contains("staff_netherite_frost") || key.contains("staff_smaragdant_frost")) return Identifier.of("wizards", "frost_blizzard");
         if (key.contains("wand_netherite_arcane") || key.contains("staff_netherite_arcane") || key.contains("staff_crystal_arcane")) return Identifier.of("wizards", "arcane_missile");

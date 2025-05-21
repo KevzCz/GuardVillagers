@@ -1,0 +1,107 @@
+{
+  "school": "spell_power:fire",
+  "range": 6.0,
+  "group": "primary",
+  "tier": 1,
+  "learn": {},
+  "tooltip": {
+    "description": {
+      "color": "dark_green",
+      "show_in_compact": false
+    }
+  },
+  "type": "PASSIVE",
+  "passive": {
+    "triggers": [
+      {
+        "type": "MELEE_IMPACT",
+        "spell": {
+          "archetype": "MAGIC"
+        }
+      }
+    ]
+  },
+  "release": {
+    "animation": "spellbladenext:one_handed_area_release",
+    "sound": {
+      "id": "spell_engine:generic_fire_release"
+    }
+  },
+  "target": {
+    "type": "AREA",
+    "cap": 8,
+    "area": {
+      "angle_degrees": 360.0
+    }
+  },
+  "deliver": {
+    "type": "PROJECTILE",
+    "projectile": {
+      "direct_towards_target": true,
+      "projectile": {
+        "divergence": 10.0,
+        "homing_angle": 30.0,
+        "homing_after_absolute_distance": 4.0,
+        "homing_after_relative_distance": 0.4,
+        "client_data": {
+          "travel_particles": [
+            {
+              "particle_id": "spell_engine:flame_spark",
+              "origin": "CENTER",
+              "shape": "CIRCLE",
+              "count": 6.0,
+              "min_speed": 0.05,
+              "max_speed": 0.1,
+              "angle": 360.0
+            },
+            {
+              "particle_id": "minecraft:smoke",
+              "origin": "CENTER",
+              "shape": "CIRCLE",
+              "count": 2.0,
+              "min_speed": 0.05,
+              "max_speed": 0.1,
+              "angle": 360.0
+            }
+          ],
+          "model": {
+            "scale": 0.0
+          }
+        }
+      }
+    }
+  },
+  "impacts": [
+    {
+      "school": "spell_power:fire",
+      "action": {
+        "type": "DAMAGE",
+        "min_power": 2.0,
+        "damage": {}
+      },
+      "particles": [
+        {
+          "particle_id": "spell_engine:flame_spark",
+          "origin": "CENTER",
+          "shape": "CIRCLE",
+          "rotation": "LOOK",
+          "count": 20.0,
+          "min_speed": 0.2,
+          "max_speed": 0.7,
+          "angle": 360.0
+        }
+      ],
+      "sound": {
+        "id": "spell_engine:generic_fire_release"
+      }
+    }
+  ],
+  "cost": {
+    "cooldown": {
+      "duration": 1.0
+    },
+    "item": {
+      "id": "runes:fire_stone"
+    }
+  }
+}

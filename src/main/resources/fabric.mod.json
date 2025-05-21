@@ -30,7 +30,8 @@
     "java": ">=21",
     "fabric-api": "*",
     "spell_engine": "*",
-    "wizards" : "*"
+    "wizards" : "*",
+    "spellbladenext": "*"
   },
   "suggests": {
     "another-mod": "*"

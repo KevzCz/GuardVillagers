@@ -7,7 +7,7 @@
         {
           "type": "minecraft:item",
           "name": "minecraft:iron_sword",
-          "weight": 10
+          "weight": 20
         },
         {
           "type": "minecraft:group",
@@ -21,7 +21,7 @@
               "name": "minecraft:crossbow"
             }
           ],
-          "weight": 6
+          "weight": 15
         },
         {
           "type": "minecraft:group",
@@ -37,9 +37,21 @@
             {
               "type": "minecraft:item",
               "name": "wizards:wand_fire"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "spellbladenext:frost_blade"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "spellbladenext:arcane_blade"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "spellbladenext:fire_blade"
             }
           ],
-          "weight": 2
+          "weight": 10
         },
         {
           "type": "minecraft:group",
@@ -55,9 +67,21 @@
             {
               "type": "minecraft:item",
               "name": "wizards:wand_netherite_fire"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "spellbladenext:frost_claymore"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "spellbladenext:arcane_claymore"
+            },
+            {
+              "type": "minecraft:item",
+              "name": "spellbladenext:fire_claymore"
             }
           ],
-          "weight": 1
+          "weight": 2
         }
       ]
     }

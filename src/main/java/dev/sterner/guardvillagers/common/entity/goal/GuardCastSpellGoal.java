@@ -333,7 +333,7 @@ public class GuardCastSpellGoal extends Goal {
 
     private boolean isHoldingWand() {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
-        return key.contains("wand_") || key.contains("staff_");
+        return key.contains("wand_") || key.contains("staff_") ||key.contains("blade_");
     }
     private Identifier getSpellIdForWand() {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
@@ -345,6 +345,7 @@ public class GuardCastSpellGoal extends Goal {
         if (key.contains("wand_netherite_arcane") || key.contains("staff_netherite_arcane") || key.contains("staff_crystal_arcane")) return Identifier.of("wizards", "arcane_missile");
         return null;
     }
+
     private Identifier getPrimarySpellId() {
         return getSpellIdForWand();
     }

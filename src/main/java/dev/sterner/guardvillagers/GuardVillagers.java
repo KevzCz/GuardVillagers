@@ -16,7 +16,10 @@ import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityTypeBuilder;
+import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.fabric.api.resource.ResourcePackActivationType;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerType;
+import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.damage.DamageSource;
@@ -73,6 +76,7 @@ public class GuardVillagers implements ModInitializer {
 
     @Override
     public void onInitialize() {
+
         MidnightConfig.init(MODID, GuardVillagersConfig.class);
         FabricDefaultAttributeRegistry.register(GUARD_VILLAGER, GuardEntity.createAttributes());
 
@@ -121,6 +125,35 @@ public class GuardVillagers implements ModInitializer {
                 }
             }
         });
+        if (FabricLoader.getInstance().isModLoaded("archers")) {
+            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
+                ResourceManagerHelper.registerBuiltinResourcePack(
+                        Identifier.of("guardvillagers", "archerscompat"), // must match your folder name
+                        modContainer,
+                        ResourcePackActivationType.ALWAYS_ENABLED
+                );
+            });
+        }
+        if (FabricLoader.getInstance().isModLoaded("archers_expansion")) {
+            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
+                ResourceManagerHelper.registerBuiltinResourcePack(
+                        Identifier.of("guardvillagers", "archersexpansioncompat"),
+                        modContainer,
+                        ResourcePackActivationType.ALWAYS_ENABLED
+                );
+            });
+        }
+
+        if (FabricLoader.getInstance().isModLoaded("elemental_wizards_rpg")) {
+            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
+                ResourceManagerHelper.registerBuiltinResourcePack(
+                        Identifier.of("guardvillagers", "elementalwizardscompat"),
+                        modContainer,
+                        ResourcePackActivationType.ALWAYS_ENABLED
+                );
+            });
+        }
+
     }
 
 

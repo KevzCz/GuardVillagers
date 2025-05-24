@@ -34,6 +34,6 @@
     "spellbladenext": "*"
   },
   "suggests": {
-    "another-mod": "*"
+    "elemental_wizards_rpg": "*"
   }
 }

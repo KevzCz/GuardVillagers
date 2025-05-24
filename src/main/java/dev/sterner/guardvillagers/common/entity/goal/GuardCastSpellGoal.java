@@ -309,11 +309,39 @@ public class GuardCastSpellGoal extends Goal {
                             ? (getChannelDuration(spell) - channelTicksLeft) / spell.active.cast.channel_ticks
                             : 0
             );
-
+            guard.swingHand(Hand.MAIN_HAND, true);
         } else if ("METEOR".equals(type) || "AREA".equals(type)) {
             castAdvancedSpell(spell, spellEntry, target);
+            guard.swingHand(Hand.MAIN_HAND, true);
+        } else if ("DIRECT".equals(type)) {
+            // NEW: For spells like aqua_water_whip
+            SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
+                    .power(SpellPower.getSpellPower(spell.school, guard))
+                    .channeled(isChanneled ? 1.0f : 0.0f)
+                    .position(guard.getEyePos())
+                    .target(SpellHelper.focusMode(spell))
+                    .distance(1.0f);
+
+            SpellHelper.performImpacts(
+                    guard.getWorld(),
+                    guard,
+                    target,
+                    guard,
+                    spellEntry,
+                    spell.impacts,
+                    context
+            );
+            guard.swingHand(Hand.MAIN_HAND, true);
+            if (spell.release != null && spell.release.sound != null) {
+                Identifier soundId = Identifier.tryParse(spell.release.sound.id());
+                if (soundId != null) {
+                    SoundEvent soundEvent = Registries.SOUND_EVENT.get(soundId);
+                    guard.getWorld().playSound(null, guard.getBlockPos(), soundEvent, SoundCategory.HOSTILE, 1.0f, 1.0f);
+                }
+            }
 
         } else {
+            // fallback to projectile casting for undefined types
             castBasicProjectile(target);
         }
     }
@@ -337,12 +365,24 @@ public class GuardCastSpellGoal extends Goal {
     }
     private Identifier getSpellIdForWand() {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
+        // Basic spells
         if (key.contains("wand_fire") || key.contains("staff_fire")) return Identifier.of("wizards", "twin_fireball");
         if (key.contains("wand_frost") || key.contains("staff_frost")) return Identifier.of("wizards", "twin_frostshard");
         if (key.contains("wand_arcane") || key.contains("staff_arcane")) return Identifier.of("wizards", "twin_arcanebolt");
+
+        if (key.contains("wand_aqua") || key.contains("staff_aqua")) return Identifier.of("elemental_wizards_rpg", "twin_whip");
+        if (key.contains("wand_terra") || key.contains("staff_terra")) return Identifier.of("elemental_wizards_rpg", "twin_spear");
+        if (key.contains("wand_wind") || key.contains("staff_wind")) return Identifier.of("elemental_wizards_rpg", "twin_cutter");
+
+        //Advanced spells
         if (key.contains("wand_netherite_fire") || key.contains("staff_netherite_fire") || key.contains("staff_ruby_fire")) return Identifier.of("wizards", "fire_meteor");
         if (key.contains("wand_netherite_frost") || key.contains("staff_netherite_frost") || key.contains("staff_smaragdant_frost")) return Identifier.of("wizards", "frost_blizzard");
         if (key.contains("wand_netherite_arcane") || key.contains("staff_netherite_arcane") || key.contains("staff_crystal_arcane")) return Identifier.of("wizards", "arcane_missile");
+
+        if (key.contains("wand_netherite_aqua") || key.contains("staff_netherite_aqua") || key.contains("staff_crystal_aqua")) return Identifier.of("elemental_wizards_rpg", "aqua_explosive_bubbles_channeling");
+        if (key.contains("wand_netherite_terra") || key.contains("staff_netherite_terra") || key.contains("staff_ruby_terra")) return Identifier.of("elemental_wizards_rpg", "terra_shattering_stone_channeling");
+        if (key.contains("wand_netherite_wind") || key.contains("staff_netherite_wind") || key.contains("staff_aeternium_wind")) return Identifier.of("elemental_wizards_rpg", "wind_aeroburst_channeling");
+
         return null;
     }
 

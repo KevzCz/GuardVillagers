@@ -5,132 +5,316 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.RangedAttackMob;
 import net.minecraft.entity.ai.goal.Goal;
-import net.minecraft.entity.mob.HostileEntity;
+import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.mob.MobEntity;
-import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.item.BowItem;
-import net.minecraft.item.Items;
+import net.minecraft.registry.Registries;
+import net.minecraft.registry.entry.RegistryEntry;
+import net.minecraft.sound.SoundEvent;
+import net.minecraft.util.Identifier;
+import net.minecraft.util.Hand;
+import net.minecraft.util.math.Vec3d;
+import net.spell_engine.api.spell.Spell;
+import net.spell_engine.api.spell.registry.SpellRegistry;
+import net.spell_engine.entity.SpellProjectile;
+import net.spell_engine.internals.SpellHelper;
+import net.spell_power.api.SpellPower;
 
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob> extends Goal {
-        private final T actor;
-        private final double speed;
-        private int attackInterval;
-        private final float squaredRange;
-        private int cooldown = -1;
-        private int targetSeeingTicker;
-        private boolean movingToLeft;
-        private boolean backward;
-        private int combatTicks = -1;
+    private final T actor;
+    private final double speed;
+    private final float squaredRange;
+    private final int attackInterval;
 
-        public RangedBowAttackPassiveGoal(T actor, double speed, int attackInterval, float range) {
-            this.actor = actor;
-            this.speed = speed;
-            this.attackInterval = attackInterval;
-            this.squaredRange = range * range;
-            this.setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.LOOK));
-        }
+    private int cooldown = 0;
+    private int targetSeeingTicker = 0;
+    private int combatTicks = -1;
+    private boolean movingToLeft = false;
+    private boolean backward = false;
 
-        public void setAttackInterval(int attackInterval) {
-            this.attackInterval = attackInterval;
-        }
+    private final Map<Identifier, Integer> spellCooldowns = new HashMap<>();
+    private boolean spellFired;
+    private int windUpTicks;
+    private int channelTicksLeft;
+    private int castingDelayTicks;
+    private boolean isChanneled;
 
-        @Override
-        public boolean canStart() {
-            if (((MobEntity)this.actor).getTarget() == null) {
-                return false;
+    private Identifier currentSpellId;
+    private RegistryEntry<Spell> cachedSpellEntry;
+
+    public RangedBowAttackPassiveGoal(T actor, double speed, int attackInterval, float range) {
+        this.actor = actor;
+        this.speed = speed;
+        this.attackInterval = attackInterval;
+        this.squaredRange = range * range;
+        this.setControls(EnumSet.of(Control.MOVE, Control.LOOK));
+    }
+
+    @Override
+    public boolean canStart() {
+        return actor.getTarget() != null && isHoldingBow();
+    }
+
+    @Override
+    public boolean shouldContinue() {
+        return canStart() || !actor.getNavigation().isIdle();
+    }
+
+    @Override
+    public void start() {
+        actor.setAttacking(true);
+    }
+
+    @Override
+    public void stop() {
+        actor.setAttacking(false);
+        actor.clearActiveItem();
+        spellCooldowns.replaceAll((id, time) -> Math.max(time - 1, 0));
+    }
+
+    private boolean isHoldingBow() {
+        return actor.getMainHandStack().getItem() instanceof BowItem;
+    }
+    private float getScaledSpellChance() {
+        double rangedDamage = 0.0;
+        Optional<RegistryEntry.Reference<net.minecraft.entity.attribute.EntityAttribute>> rangedAttrEntryOpt =
+                Registries.ATTRIBUTE.getEntry(Identifier.of("ranged_weapon", "damage"));
+
+        if (rangedAttrEntryOpt.isPresent()) {
+            RegistryEntry<net.minecraft.entity.attribute.EntityAttribute> rangedAttrEntry = rangedAttrEntryOpt.get();
+            if (actor.getAttributes().hasAttribute(rangedAttrEntry)) {
+                rangedDamage = actor.getAttributeValue(rangedAttrEntry);
             }
-            return this.isHoldingBow();
         }
 
-        protected boolean isHoldingBow() {
-            return ((LivingEntity)this.actor).isHolding(Items.BOW);
+        // Linear scale: 0 damage = 5%, 10 damage = 15%
+        double minChance = 0.05;
+        double maxChance = 0.15;
+        double maxDamage = 10.0;
+
+        double chance = minChance + (Math.min(rangedDamage, maxDamage) / maxDamage) * (maxChance - minChance);
+        return (float) chance;
+    }
+    @Override
+    public void tick() {
+        LivingEntity target = actor.getTarget();
+        if (target == null || !target.isAlive()) return;
+
+        double distanceSq = actor.squaredDistanceTo(target);
+        boolean canSee = actor.getVisibilityCache().canSee(target);
+        boolean hasSeenRecently = targetSeeingTicker > 0;
+
+        if (canSee != hasSeenRecently) targetSeeingTicker = 0;
+        targetSeeingTicker = canSee ? ++targetSeeingTicker : --targetSeeingTicker;
+
+        if (distanceSq > squaredRange || targetSeeingTicker < 20) {
+            actor.getNavigation().startMovingTo(target, speed);
+            combatTicks = -1;
+        } else {
+            actor.getNavigation().stop();
+            ++combatTicks;
         }
 
-        @Override
-        public boolean shouldContinue() {
-            return (this.canStart() || !((MobEntity)this.actor).getNavigation().isIdle()) && this.isHoldingBow();
+        if (combatTicks >= 20) {
+            if (actor.getRandom().nextFloat() < 0.3f) movingToLeft = !movingToLeft;
+            if (actor.getRandom().nextFloat() < 0.3f) backward = !backward;
+            combatTicks = 0;
         }
 
-        @Override
-        public void start() {
-            super.start();
-            ((MobEntity)this.actor).setAttacking(true);
+        if (combatTicks > -1) {
+            if (distanceSq > squaredRange * 0.75f) backward = false;
+            else if (distanceSq < squaredRange * 0.25f) backward = true;
+            actor.getMoveControl().strafeTo(backward ? -0.5f : 0.5f, movingToLeft ? 0.5f : -0.5f);
         }
 
-        @Override
-        public void stop() {
-            super.stop();
-            ((MobEntity)this.actor).setAttacking(false);
-            this.targetSeeingTicker = 0;
-            this.cooldown = -1;
-            ((LivingEntity)this.actor).clearActiveItem();
+        actor.lookAtEntity(target, 30.0f, 30.0f);
+        actor.getLookControl().lookAt(target, 30.0f, 30.0f);
+
+        // Cooldowns
+        spellCooldowns.replaceAll((id, time) -> Math.max(time - 1, 0));
+        if (cooldown > 0) {
+            cooldown--;
+            return;
         }
 
-        @Override
-        public boolean shouldRunEveryTick() {
-            return true;
-        }
+        Identifier spellId = getBowSpellId();
 
-        @Override
-        public void tick() {
-            boolean bl2;
-            LivingEntity livingEntity = ((MobEntity)this.actor).getTarget();
-            if (livingEntity == null) {
-                return;
-            }
-            double d = ((Entity)this.actor).squaredDistanceTo(livingEntity.getX(), livingEntity.getY(), livingEntity.getZ());
-            boolean bl = ((MobEntity)this.actor).getVisibilityCache().canSee(livingEntity);
-            boolean bl3 = bl2 = this.targetSeeingTicker > 0;
-            if (bl != bl2) {
-                this.targetSeeingTicker = 0;
-            }
-            this.targetSeeingTicker = bl ? ++this.targetSeeingTicker : --this.targetSeeingTicker;
-            if (d > (double)this.squaredRange || this.targetSeeingTicker < 20) {
-                ((MobEntity)this.actor).getNavigation().startMovingTo(livingEntity, this.speed);
-                this.combatTicks = -1;
-            } else {
-                ((MobEntity)this.actor).getNavigation().stop();
-                ++this.combatTicks;
-            }
-            if (this.combatTicks >= 20) {
-                if ((double)((Entity)this.actor).getRandom().nextFloat() < 0.3) {
-                    boolean bl4 = this.movingToLeft = !this.movingToLeft;
+        if (actor.isUsingItem()) {
+            int useTime = actor.getItemUseTime();
+
+            if (canSee && useTime >= 30) {
+                actor.clearActiveItem();
+
+                float spellChance = getScaledSpellChance();
+                if (spellId != null && !isSpellOnCooldown(spellId) && actor.getRandom().nextFloat() < spellChance) {
+
+                    Optional<RegistryEntry.Reference<Spell>> spellOpt = SpellRegistry.from(actor.getWorld()).getEntry(spellId);
+                    if (spellOpt.isPresent()) {
+                        cachedSpellEntry = spellOpt.get();
+                        Spell spell = cachedSpellEntry.value();
+                        currentSpellId = spellId;
+
+                        // Prep context
+                        windUpTicks = getWindUpTicks(spell);
+                        isChanneled = isSpellChanneled(spell);
+                        channelTicksLeft = getChannelDuration(spell);
+                        castingDelayTicks = 0;
+                        spellFired = false;
+
+                        castSpell(target, spell, cachedSpellEntry);
+
+                        spellCooldowns.put(spellId, 10); // Hardcoded cooldown
+                        cooldown = 0; // No delay before next use
+                        return;
+                    }
                 }
-                if ((double)((Entity)this.actor).getRandom().nextFloat() < 0.3) {
-                    this.backward = !this.backward;
-                }
-                this.combatTicks = 0;
+
+                // No spell or fail chance: fallback to regular shot
+                ((RangedAttackMob) actor).shootAt(target, BowItem.getPullProgress(useTime));
             }
-            if (this.combatTicks > -1) {
-                if (d > (double)(this.squaredRange * 0.75f)) {
-                    this.backward = false;
-                } else if (d < (double)(this.squaredRange * 0.25f)) {
-                    this.backward = true;
+
+        } else if (cooldown <= 0 && targetSeeingTicker >= -60) {
+            // Start drawing bow
+            actor.setCurrentHand(Hand.MAIN_HAND);
+        }
+    }
+
+
+    private void castSpell(LivingEntity target, Spell spell, RegistryEntry<Spell> spellEntry) {
+        SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
+                .power(SpellPower.getSpellPower(spell.school, actor))
+                .channeled(isChanneled ? 1.0f : 0.0f)
+                .position(actor.getEyePos())
+                .target(SpellHelper.focusMode(spell))
+                .distance(1.0f);
+
+        switch (String.valueOf(spell.deliver.type).toUpperCase()) {
+            case "PROJECTILE" -> {
+                int totalProjectiles = 1 + spell.deliver.projectile.launch_properties.extra_launch_count;
+
+                for (int i = 0; i < totalProjectiles; i++) {
+                    Spell.ProjectileData.Perks perks = spell.deliver.projectile.projectile.perks != null
+                            ? spell.deliver.projectile.projectile.perks.copy()
+                            : new Spell.ProjectileData.Perks();
+
+                    Vec3d launchPos = SpellHelper.launchPoint(actor);
+                    Vec3d direction = target.getEyePos().subtract(launchPos).normalize();
+
+                    // Apply yaw offset from direction_offsets if available
+                    float yawOffset = 0;
+                    if (spell.deliver.projectile.direction_offsets != null &&
+                            i < spell.deliver.projectile.direction_offsets.length) {
+                        yawOffset = spell.deliver.projectile.direction_offsets[i].yaw;
+
+                    }
+
+                    Vec3d rotatedDirection = rotateYaw(direction, yawOffset);
+
+                    SpellProjectile projectile = new SpellProjectile(
+                            actor.getWorld(),
+                            actor,
+                            launchPos.x,
+                            launchPos.y,
+                            launchPos.z,
+                            SpellProjectile.Behaviour.FLY,
+                            spellEntry,
+                            context,
+                            perks
+                    );
+
+                    projectile.setVelocity(rotatedDirection.x, rotatedDirection.y, rotatedDirection.z,
+                            spell.deliver.projectile.launch_properties.velocity,
+                            spell.deliver.projectile.projectile.divergence
+                    );
+
+                    projectile.range = spell.range;
+
+                    actor.getWorld().spawnEntity(projectile);
                 }
-                ((MobEntity)this.actor).getMoveControl().strafeTo(this.backward ? -0.5f : 0.5f, this.movingToLeft ? 0.5f : -0.5f);
-                Entity entity = ((Entity)this.actor).getControllingVehicle();
-                if (entity instanceof MobEntity) {
-                    MobEntity mobEntity = (MobEntity)entity;
-                    mobEntity.lookAtEntity(livingEntity, 30.0f, 30.0f);
-                }
-                ((MobEntity)this.actor).lookAtEntity(livingEntity, 30.0f, 30.0f);
-            } else {
-                ((MobEntity)this.actor).getLookControl().lookAt(livingEntity, 30.0f, 30.0f);
+
+                playSpellSound(spell);
             }
-            if (((LivingEntity)this.actor).isUsingItem()) {
-                int i;
-                if (!bl && this.targetSeeingTicker < -60) {
-                    ((LivingEntity)this.actor).clearActiveItem();
-                } else if (bl && (i = ((LivingEntity)this.actor).getItemUseTime()) >= 20) {
-                    ((LivingEntity)this.actor).clearActiveItem();
-                    ((RangedAttackMob)this.actor).shootAt(livingEntity, BowItem.getPullProgress(i));
-                    this.cooldown = this.attackInterval;
-                }
-            } else if (--this.cooldown <= 0 && this.targetSeeingTicker >= -60) {
-                ((LivingEntity)this.actor).setCurrentHand(ProjectileUtil.getHandPossiblyHolding(this.actor, Items.BOW));
+
+            case "METEOR" -> {
+                SpellHelper.fallProjectile(
+                        actor.getWorld(),
+                        actor,
+                        target,
+                        target.getPos(),
+                        spellEntry,
+                        context
+                );
+                playSpellSound(spell);
+            }
+
+            case "DIRECT" -> {
+                SpellHelper.performImpacts(
+                        actor.getWorld(),
+                        actor,
+                        target,
+                        actor,
+                        spellEntry,
+                        spell.impacts,
+                        context
+                );
+                playSpellSound(spell);
             }
         }
     }
+    private Vec3d rotateYaw(Vec3d vec, float degrees) {
+        double radians = Math.toRadians(degrees);
+        double cos = Math.cos(radians);
+        double sin = Math.sin(radians);
+        double x = vec.x * cos - vec.z * sin;
+        double z = vec.x * sin + vec.z * cos;
+        return new Vec3d(x, vec.y, z);
+    }
+
+    private Identifier getBowSpellId() {
+        return actor.getBowSkill() != null && !actor.getBowSkill().equals("none")
+                ? Identifier.tryParse(actor.getBowSkill())
+                : null;
+    }
+
+    private boolean isSpellOnCooldown(Identifier spellId) {
+        return spellCooldowns.getOrDefault(spellId, 0) > 0;
+    }
+
+    private boolean isSpellChanneled(Spell spell) {
+        return spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0;
+    }
+
+    private int getWindUpTicks(Spell spell) {
+        return spell.active != null && spell.active.cast != null
+                ? (int) (spell.active.cast.duration * 20)
+                : 20;
+    }
+
+    private int getChannelDuration(Spell spell) {
+        return spell.active != null && spell.active.cast != null
+                ? spell.active.cast.channel_ticks
+                : 0;
+    }
+
+    private int getCooldownTicks(Spell spell) {
+        return spell.cost != null && spell.cost.cooldown != null
+                ? (int) (spell.cost.cooldown.duration * 20)
+                : 20;
+    }
+
+    private void playSpellSound(Spell spell) {
+        if (spell.release != null && spell.release.sound != null) {
+            Identifier soundId = Identifier.tryParse(spell.release.sound.id());
+            if (soundId != null) {
+                SoundEvent sound = Registries.SOUND_EVENT.get(soundId);
+                actor.getWorld().playSound(null, actor.getBlockPos(), sound, net.minecraft.sound.SoundCategory.HOSTILE, 1.0F, 1.0F);
+            }
+        }
+    }
+}
 

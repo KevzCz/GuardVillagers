@@ -7,7 +7,8 @@
     "ServerWorldMixin",
     "VillagerTaskListProviderMixin",
     "accessor.CrossbowItemAccessor",
-    "GuardFriendlyFireMixin"
+    "GuardFriendlyFireMixin",
+    "CrossbowItemMixin"
   ],
   "injectors": {
     "defaultRequire": 1

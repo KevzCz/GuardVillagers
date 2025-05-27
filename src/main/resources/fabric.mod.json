@@ -2,10 +2,11 @@
   "schemaVersion": 1,
   "id": "guardvillagers",
   "version": "${version}",
-  "name": "GuardVillagers",
+  "name": "Wizard Villagers",
   "description": "Better village pest controll!",
   "authors": [
-    "MrSterner"
+    "KevzCz",
+    "Fabric port by MrSterner"
   ],
   "contact": {
   },
@@ -34,6 +35,7 @@
     "spellbladenext": "*"
   },
   "suggests": {
-    "elemental_wizards_rpg": "*"
+    "elemental_wizards_rpg": "*",
+    "archers_expansion": "*"
   }
 }

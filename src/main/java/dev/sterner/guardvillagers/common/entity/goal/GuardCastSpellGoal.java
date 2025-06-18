@@ -385,10 +385,70 @@ public class GuardCastSpellGoal extends Goal {
 
         return null;
     }
+    private Identifier[] getAdvancedAndBasicSpellIds() {
+        String key = guard.getMainHandStack().getItem().getTranslationKey();
+
+        // Fire
+        if (key.contains("fire")) {
+            return new Identifier[]{
+                    Identifier.of("wizards", "fire_meteor"),       // advanced
+                    Identifier.of("wizards", "twin_fireball")      // basic
+            };
+        }
+        // Frost
+        if (key.contains("frost")) {
+            return new Identifier[]{
+                    Identifier.of("wizards", "frost_blizzard"),
+                    Identifier.of("wizards", "twin_frostshard")
+            };
+        }
+        // Arcane
+        if (key.contains("arcane")) {
+            return new Identifier[]{
+                    Identifier.of("wizards", "arcane_missile"),
+                    Identifier.of("wizards", "twin_arcanebolt")
+            };
+        }
+        // Aqua
+        if (key.contains("aqua")) {
+            return new Identifier[]{
+                    Identifier.of("elemental_wizards_rpg", "aqua_explosive_bubbles_channeling"),
+                    Identifier.of("elemental_wizards_rpg", "twin_whip")
+            };
+        }
+        // Terra
+        if (key.contains("terra")) {
+            return new Identifier[]{
+                    Identifier.of("elemental_wizards_rpg", "terra_shattering_stone_channeling"),
+                    Identifier.of("elemental_wizards_rpg", "twin_spear")
+            };
+        }
+        // Wind
+        if (key.contains("wind")) {
+            return new Identifier[]{
+                    Identifier.of("elemental_wizards_rpg", "wind_aeroburst_channeling"),
+                    Identifier.of("elemental_wizards_rpg", "twin_cutter")
+            };
+        }
+
+        return new Identifier[]{ null, null };
+    }
 
     private Identifier getPrimarySpellId() {
-        return getSpellIdForWand();
+        Identifier[] spellIds = getAdvancedAndBasicSpellIds();
+        Identifier advanced = spellIds[0];
+        Identifier basic = spellIds[1];
+
+        if (advanced != null && !isSpellOnCooldown(advanced)) {
+            return advanced;
+        }
+        if (basic != null && !isSpellOnCooldown(basic)) {
+            return basic;
+        }
+
+        return null; // both are on cooldown
     }
+
 
 
     private int getChannelFireInterval(Spell spell) {

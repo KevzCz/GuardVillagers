@@ -2,6 +2,7 @@ package dev.sterner.guardvillagers.common.entity.goal;
 
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.GuardVillagersConfig;
+import dev.sterner.guardvillagers.common.ai.CombatMovementHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import dev.sterner.guardvillagers.mixin.accessor.CrossbowItemAccessor;
 import net.minecraft.component.DataComponentTypes;
@@ -46,8 +47,6 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
     private int seeTime;
     private int attackDelay;
     private int updatePathDelay;
-
-    // Spell system
     private final Map<Identifier, Integer> spellCooldowns = new HashMap<>();
     private Identifier currentSpellId;
     private RegistryEntry<Spell> cachedSpellEntry;
@@ -105,33 +104,24 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
         LivingEntity target = this.mob.getTarget();
 
         if (target != null) {
-            double distance = this.mob.squaredDistanceTo(target);
             boolean canSee = this.mob.getVisibilityCache().canSee(target);
             boolean hasSeenRecently = this.seeTime > 0;
 
-            this.seeTime += canSee ? 1 : -1;
+            var mv = CombatMovementHelper.applyRangedCombatMovement(
+                    this.mob,
+                    target,
+                    canSee,
+                    this.seeTime,
+                    this.updatePathDelay,
+                    this.attackDelay,
+                    this.mob.isUsingItem(),
+                    this.canRun(),
+                    this.speedModifier,
+                    (float)Math.sqrt(this.attackRadiusSqr)
+            );
+            this.seeTime = mv.seeTime();
+            this.updatePathDelay = mv.updatePathDelay();
 
-            if (distance <= 4.0D) {
-                this.mob.getMoveControl().strafeTo(this.mob.isUsingItem() ? -0.5F : -3.0F, 0.0F);
-            }
-
-            if (this.mob.getRandom().nextInt(50) == 0) {
-                this.mob.setPose(this.mob.getPose() == EntityPose.STANDING ? EntityPose.CROUCHING : EntityPose.STANDING);
-            }
-
-            boolean shouldMove = (distance > this.attackRadiusSqr || this.seeTime < 5) && this.attackDelay == 0;
-            if (shouldMove) {
-                if (--this.updatePathDelay <= 0) {
-                    this.mob.getNavigation().startMovingTo(target, this.canRun() ? this.speedModifier : this.speedModifier * 0.5D);
-                    this.updatePathDelay = PATHFINDING_DELAY_RANGE.get(this.mob.getRandom());
-                }
-            } else {
-                this.updatePathDelay = 0;
-                this.mob.getNavigation().stop();
-            }
-
-            this.mob.lookAtEntity(target, 30.0F, 30.0F);
-            this.mob.getLookControl().lookAt(target, 30.0F, 30.0F);
             spellCooldowns.replaceAll((id, t) -> Math.max(t - 1, 0));
 
             if (this.friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire) {
@@ -180,7 +170,6 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
                 case READY_TO_ATTACK -> {
                     if (!canSee) return;
 
-                    // SPELL CAST ATTEMPT
                     Identifier spellId = getCrossbowSpellId();
                     if (spellId != null && !isSpellOnCooldown(spellId) && this.mob.getRandom().nextFloat() < 0.15f) {
                         Optional<RegistryEntry.Reference<Spell>> optSpell = SpellRegistry.from(this.mob.getWorld()).getEntry(spellId);
@@ -189,13 +178,12 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
                             Spell spell = cachedSpellEntry.value();
 
                             castCrossbowSpell(target, spell, cachedSpellEntry);
-                            spellCooldowns.put(spellId, 60); // cooldown in ticks
+                            spellCooldowns.put(spellId, 60);
                             this.crossbowState = CrossbowState.UNCHARGED;
                             return;
                         }
                     }
 
-                    // NORMAL SHOOT
                     ItemStack crossbowStack = this.mob.getStackInHand(GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem));
                     Hand hand = GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem);
                     CrossbowItem crossbowItem = (CrossbowItem) crossbowStack.getItem();
@@ -285,7 +273,6 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
         PersistentProjectileEntity projectile = ProjectileUtil.createArrowProjectile(mob, arrowStack, 1.0F, crossbowStack);
 
-        // ➕ Apply attribute-based scaling like in your bow code
         final double[] rangedDamage = {0.0};
         Identifier attrId = Identifier.of("ranged_weapon", "damage");
         Registries.ATTRIBUTE.getEntry(attrId).ifPresent(attr -> {
@@ -296,7 +283,6 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
         projectile.setDamage(projectile.getDamage() + rangedDamage[0] / 2);
 
-        // Aim and fire
         Vec3d targetPos = target.getEyePos();
         double dx = targetPos.x - mob.getX();
         double dy = targetPos.y - projectile.getY();
@@ -306,10 +292,8 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
         mob.getWorld().spawnEntity(projectile);
 
-        // ✅ Remove used arrow from charged projectiles
         crossbowStack.remove(DataComponentTypes.CHARGED_PROJECTILES);
 
-        // 🔊 Optional: play firing sound
         mob.playSound(SoundEvents.ITEM_CROSSBOW_SHOOT, 1.0F, 1.0F);
     }
 

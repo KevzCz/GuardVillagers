@@ -98,6 +98,9 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     private static final TrackedData<Boolean> FOLLOWING = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
     private static final Map<EntityPose, EntityDimensions> SIZE_BY_POSE = ImmutableMap.<EntityPose, EntityDimensions>builder().put(EntityPose.STANDING, EntityDimensions.changing(0.6F, 1.95F)).put(EntityPose.SLEEPING, SLEEPING_DIMENSIONS).put(EntityPose.FALL_FLYING, EntityDimensions.changing(0.6F, 0.6F)).put(EntityPose.SWIMMING, EntityDimensions.changing(0.6F, 0.6F)).put(EntityPose.SPIN_ATTACK, EntityDimensions.changing(0.6F, 0.6F)).put(EntityPose.CROUCHING, EntityDimensions.changing(0.6F, 1.75F)).put(EntityPose.DYING, EntityDimensions.fixed(0.2F, 0.2F)).build();
     private static final UniformIntProvider angerTime = TimeHelper.betweenSeconds(20, 39);
+    private static final TrackedData<String> HOLY_SKILL =
+            DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.STRING);
+
     private static final TrackedData<String> BOW_SKILL = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.STRING);
 
     public static final Map<EquipmentSlot, RegistryKey<LootTable>> EQUIPMENT_SLOT_ITEMS = Util.make(Maps.newHashMap(), (slotItems) -> {
@@ -178,6 +181,19 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
             type = ((GuardEntity.GuardEntityData) entityData).variantData;
             entityData = new GuardEntity.GuardEntityData(type);
         }
+        if (this.getHolySkill().equals("none")) {
+            List<String> holy = new ArrayList<>();
+            if (FabricLoader.getInstance().isModLoaded("paladins")) {
+                holy.add("paladins:circle_of_healing");
+                holy.add("paladins:barrier");
+            }
+            if (FabricLoader.getInstance().isModLoaded("lne_paladins")) {
+                holy.add("lne_paladins:holy_prevention");
+            }
+            holy.add("none");
+            this.setHolySkill(holy.get(world.getRandom().nextInt(holy.size())));
+        }
+
         if (this.getBowSkill().equals("none")) {
             List<String> possibleSkills = new ArrayList<>();
 
@@ -190,7 +206,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
                 possibleSkills.add("archers:magic_arrow_channeling");
             }
 
-            possibleSkills.add("none"); // Always allow fallback
+            possibleSkills.add("none");
 
             this.setBowSkill(possibleSkills.get(world.getRandom().nextInt(possibleSkills.size())));
         }
@@ -273,7 +289,9 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         if (nbt.contains("BowSkill", NbtElement.STRING_TYPE)) {
             this.setBowSkill(nbt.getString("BowSkill"));
         }
-
+        if (nbt.contains("HolySkill", NbtElement.STRING_TYPE)) {
+            this.setHolySkill(nbt.getString("HolySkill"));
+        }
         if (nbt.contains("PatrolPosX")) {
             int x = nbt.getInt("PatrolPosX");
             int y = nbt.getInt("PatrolPosY");
@@ -357,6 +375,7 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         nbt.putLong("LastGossipTime", this.lastGossipTime);
         nbt.putLong("LastGossipDecay", this.lastGossipDecayTime);
         nbt.putString("BowSkill", this.getBowSkill());
+        nbt.putString("HolySkill", this.getHolySkill());
 
         if (this.getOwnerId() != null) {
             nbt.putUuid("Owner", this.getOwnerId());
@@ -824,8 +843,15 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         builder.add(PATROLLING, false);
         builder.add(RUNNING_TO_EAT, false);
         builder.add(BOW_SKILL, "none"); // Default is "none"
+        builder.add(HOLY_SKILL, "none");
 
         super.initDataTracker(builder);
+    }
+    public String getHolySkill() {
+        return this.dataTracker.get(HOLY_SKILL);
+    }
+    public void setHolySkill(String skill) {
+        this.dataTracker.set(HOLY_SKILL, skill);
     }
 
     public boolean isCharging() {
@@ -875,8 +901,10 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         this.goalSelector.add(0, new GuardEatFoodGoal(this));
         this.goalSelector.add(0, new RaiseShieldGoal(this));
         this.goalSelector.add(1, new GuardRunToEatGoal(this));
+        this.goalSelector.add(1, new MeleeRetreatForHealingGoal(this, 1.1D));
         this.goalSelector.add(2, new RangedCrossbowAttackPassiveGoal<>(this, 1.0D, 8.0F));
         this.goalSelector.add(2, new GuardCastSpellGoal(this));
+        this.goalSelector.add(2, new PriestRangedHealerGoal (this));
         this.goalSelector.add(2, new RangedBowAttackPassiveGoal<GuardEntity>(this, 0.5D, 20, 15.0F) {
             @Override
             public boolean canStart() {
@@ -903,6 +931,8 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         });
         this.goalSelector.add(2, new GuardEntityMeleeGoal(this, 0.8D, true));
         this.goalSelector.add(3, new GuardEntity.FollowHeroGoal(this));
+        this.goalSelector.add(3, new HolyAreaAnchorGoal(this, 1.1D, HolyAreaAnchorGoal.rangedOrCaster()));
+
         if (GuardVillagersConfig.guardEntitysRunFromPolarBears)
             this.goalSelector.add(3, new FleeEntityGoal<>(this, PolarBearEntity.class, 12.0F, 1.0D, 1.2D));
         this.goalSelector.add(3, new WanderAroundPointOfInterestGoal(this, 0.5D, false));
@@ -945,21 +975,18 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         if (this.getMainHandStack().getItem() instanceof CrossbowItem crossbowItem) {
             ItemStack crossbow = this.getMainHandStack();
 
-            // Ensure crossbow has at least one projectile loaded
             if (!CrossbowItem.isCharged(crossbow)) {
                 ItemStack ammo = this.getProjectileType(crossbow);
                 if (ammo.isEmpty()) {
                     ammo = new ItemStack(Items.ARROW);
                 }
 
-                // Inject projectile manually
                 crossbow.set(
                         DataComponentTypes.CHARGED_PROJECTILES,
                         ChargedProjectilesComponent.of(List.of(ammo.copyWithCount(1)))
                 );
             }
 
-            // Now shoot the charged projectile
             crossbowItem.shootAll(
                     this.getWorld(),
                     this,
@@ -996,7 +1023,6 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         ItemEnchantmentsComponent enchantments = EnchantmentHelper.getEnchantments(weapon);
         PersistentProjectileEntity projectile = ProjectileUtil.createArrowProjectile(this, arrow, pullProgress, weapon);
 
-        // Add ranged_weapon:damage attribute value if present
         double rangedDamage = 0.0;
         Optional<RegistryEntry.Reference<EntityAttribute>> rangedAttrEntryOpt = Registries.ATTRIBUTE.getEntry(Identifier.of("ranged_weapon", "damage"));
 
@@ -1008,15 +1034,12 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         }
 
 
-
-        // Apply Power enchant
         RegistryWrapper.Impl<Enchantment> registry = this.getRegistryManager().getWrapperOrThrow(RegistryKeys.ENCHANTMENT);
         int powerLevel = enchantments.getLevel(registry.getOrThrow(Enchantments.POWER));
         if (powerLevel > 0) {
             projectile.setDamage(projectile.getDamage() + powerLevel * 0.5D + 0.5D);
         }
 
-        // Apply ranged_weapon:damage on top
         projectile.setDamage(projectile.getDamage() + rangedDamage / 3);
 
         int punchLevel = enchantments.getLevel(registry.getOrThrow(Enchantments.PUNCH));
@@ -1366,55 +1389,32 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
             this.guard.getNavigation().stop();
         }
     }
-
-    public static class GuardEntityMeleeGoal extends MeleeAttackGoal {
-        public final GuardEntity guard;
-
-        public GuardEntityMeleeGoal(GuardEntity guard, double speedIn, boolean useLongMemory) {
-            super(guard, speedIn, useLongMemory);
-            this.guard = guard;
-        }
-
-        @Override
-        public boolean canStart() {
-            return !(this.guard.getMainHandStack().getItem() instanceof CrossbowItem) && this.guard.getTarget() != null && !guard.isCastingSpell() && !this.guard.isEating() && super.canStart();
-        }
-
-        @Override
-        public boolean shouldContinue() {
-            return super.shouldContinue() && !guard.isCastingSpell() && this.guard.getTarget() != null;
-        }
-
-        @Override
-        public void tick() {
-            LivingEntity target = guard.getTarget();
-            if (target != null) {
-                double distanceSq = guard.squaredDistanceTo(target);
-
-                guard.lookAtEntity(target, 30.0F, 30.0F);
-
-                if (distanceSq < 1.0D) {
-
-                    guard.getMoveControl().strafeTo(-0.5F, 0.0F);
-                    guard.getNavigation().stop();
-                } else if (this.path != null && distanceSq <= 4.0D) {
-                    guard.getNavigation().stop();
-                }
-
-                super.tick();
-            }
-        }
-
-
-        @Override
-        protected void attack(LivingEntity target) {
-            if (guard.isInAttackRange(target) && this.getCooldown() <= 0) {
-                this.resetCooldown();
-                this.guard.stopUsingItem();
-                if (guard.shieldCoolDown == 0) this.guard.shieldCoolDown = 8;
-                this.guard.swingHand(Hand.MAIN_HAND);
-                this.guard.tryAttack(target);
-            }
-        }
+    public boolean isHoldingHolyFocus() {
+        ItemStack s = this.getMainHandStack();
+        if (s.isEmpty()) return false;
+        Identifier id = Registries.ITEM.getId(s.getItem());
+        if (!"paladins".equals(id.getNamespace())) return false;
+        String p = id.getPath();
+        return p.equals("acolyte_wand")
+                || p.equals("holy_wand")
+                || p.equals("holy_staff")
+                || p.endsWith("_holy_wand")
+                || p.endsWith("_holy_staff");
     }
+
+    public boolean isPriest() {
+        return isHoldingHolyFocus();
+    }
+    public boolean hasFoodInOffhand() {
+        ItemStack off = this.getOffHandStack();
+        if (off.isEmpty()) return false;
+
+        net.minecraft.component.type.FoodComponent food = off.get(net.minecraft.component.DataComponentTypes.FOOD);
+        if (food != null) return true;
+
+        return off.getUseAction() == net.minecraft.util.UseAction.EAT;
+    }
+
+
+
 }

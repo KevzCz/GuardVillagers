@@ -46,6 +46,8 @@ import net.minecraft.world.World;
 import net.minecraft.world.spawner.SpecialSpawner;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.system.MathUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -54,6 +56,8 @@ import java.util.function.Predicate;
 public class GuardVillagers implements ModInitializer {
     public static final String MODID = "guardvillagers";
 
+    // ADD THIS:
+    public static final Logger LOGGER = LoggerFactory.getLogger(MODID);
     public static final ScreenHandlerType<GuardVillagerScreenHandler> GUARD_SCREEN_HANDLER =
             new ExtendedScreenHandlerType<>((syncId, inventory, data) -> new GuardVillagerScreenHandler(syncId, inventory, data), GuardData.PACKET_CODEC);
 

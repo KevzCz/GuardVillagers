@@ -2,6 +2,7 @@ package dev.sterner.guardvillagers.common.entity.goal;
 
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.GuardVillagersConfig;
+import dev.sterner.guardvillagers.common.ai.CombatMovementHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
@@ -110,54 +111,21 @@ public class GuardCastSpellGoal extends Goal {
         LivingEntity target = guard.getTarget();
         if (target == null || !target.isAlive()) return;
         spellCooldowns.replaceAll((id, time) -> Math.max(time - 1, 0));
-
-        boolean canSee = guard.getVisibilityCache().canSee(target);
         boolean hasSeenRecently = this.seeTime > 0;
+        boolean canSee = guard.getVisibilityCache().canSee(target);
+        var mv = CombatMovementHelper.applyRangedCombatMovement(
+                guard,
+                target,
+                canSee,
+                this.seeTime,
+                this.updatePathDelay,
+                this.cooldownTicks,
+                this.spellState == SpellState.CHARGING || this.spellState == SpellState.CHARGED || this.spellState == SpellState.COOLDOWN,
+                this.canRun()
+        );
+        this.seeTime = mv.seeTime();
+        this.updatePathDelay = mv.updatePathDelay();
 
-        if (canSee != hasSeenRecently) this.seeTime = 0;
-        if (canSee) ++this.seeTime;
-        else --this.seeTime;
-
-        double distanceSq = guard.squaredDistanceTo(target);
-        double distance = Math.sqrt(distanceSq);
-        float forward = 0.0F;
-        float sideways = 0.0F;
-
-
-        if (spellState == SpellState.CHARGING || spellState == SpellState.CHARGED || spellState == SpellState.COOLDOWN) {
-            if (guard.getRandom().nextInt(10) == 0) {
-                sideways = guard.getRandom().nextBoolean() ? 0.5F : -0.5F;
-            }
-            forward = guard.isUsingItem() ? -0.5F : -0.1F;
-            guard.getMoveControl().strafeTo(sideways, forward);
-        }
-
-        if (distance <= 4.0D) {
-            guard.getMoveControl().strafeTo(guard.isUsingItem() ? -0.5F : -3.0F, 0.0F);
-        }
-
-        if (guard.getRandom().nextInt(50) == 0) {
-            if (guard.isInPose(EntityPose.STANDING))
-                guard.setPose(EntityPose.CROUCHING);
-            else
-                guard.setPose(EntityPose.STANDING);
-        }
-
-
-        boolean needsToMove = (distanceSq > ATTACK_RADIUS_SQR || this.seeTime < 5) && this.cooldownTicks == 0;
-        if (needsToMove) {
-            --this.updatePathDelay;
-            if (this.updatePathDelay <= 0) {
-                guard.getNavigation().startMovingTo(target, this.canRun() ? 1.0D : 0.5D);
-                this.updatePathDelay = PATHFINDING_DELAY_RANGE.get(guard.getRandom());
-            }
-        } else {
-            this.updatePathDelay = 0;
-            guard.getNavigation().stop();
-        }
-
-        guard.lookAtEntity(target, 30.0F, 30.0F);
-        guard.getLookControl().lookAt(target, 30.0F, 30.0F);
 
 
         if (this.friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire) {
@@ -314,7 +282,6 @@ public class GuardCastSpellGoal extends Goal {
             castAdvancedSpell(spell, spellEntry, target);
             guard.swingHand(Hand.MAIN_HAND, true);
         } else if ("DIRECT".equals(type)) {
-            // NEW: For spells like aqua_water_whip
             SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
                     .power(SpellPower.getSpellPower(spell.school, guard))
                     .channeled(isChanneled ? 1.0f : 0.0f)
@@ -341,7 +308,6 @@ public class GuardCastSpellGoal extends Goal {
             }
 
         } else {
-            // fallback to projectile casting for undefined types
             castBasicProjectile(target);
         }
     }
@@ -388,51 +354,61 @@ public class GuardCastSpellGoal extends Goal {
     private Identifier[] getAdvancedAndBasicSpellIds() {
         String key = guard.getMainHandStack().getItem().getTranslationKey();
 
+        boolean advancedAllowed =
+                key.contains("netherite") ||
+                        key.contains("staff_ruby_fire") ||
+                        key.contains("staff_smaragdant_frost") ||
+                        key.contains("staff_crystal_arcane") ||
+                        key.contains("staff_crystal_aqua") ||
+                        key.contains("staff_ruby_terra") ||
+                        key.contains("staff_aeternium_wind");
+
         // Fire
         if (key.contains("fire")) {
-            return new Identifier[]{
-                    Identifier.of("wizards", "fire_meteor"),       // advanced
-                    Identifier.of("wizards", "twin_fireball")      // basic
+            return new Identifier[] {
+                    advancedAllowed ? Identifier.of("wizards", "fire_meteor") : null,
+                    Identifier.of("wizards", "twin_fireball")
             };
         }
         // Frost
         if (key.contains("frost")) {
-            return new Identifier[]{
-                    Identifier.of("wizards", "frost_blizzard"),
+            return new Identifier[] {
+                    advancedAllowed ? Identifier.of("wizards", "frost_blizzard") : null,
                     Identifier.of("wizards", "twin_frostshard")
             };
         }
         // Arcane
         if (key.contains("arcane")) {
-            return new Identifier[]{
-                    Identifier.of("wizards", "arcane_missile"),
+            return new Identifier[] {
+                    advancedAllowed ? Identifier.of("wizards", "arcane_missile") : null,
                     Identifier.of("wizards", "twin_arcanebolt")
             };
         }
         // Aqua
         if (key.contains("aqua")) {
-            return new Identifier[]{
-                    Identifier.of("elemental_wizards_rpg", "aqua_explosive_bubbles_channeling"),
+            return new Identifier[] {
+                    advancedAllowed ? Identifier.of("elemental_wizards_rpg", "aqua_explosive_bubbles_channeling") : null,
                     Identifier.of("elemental_wizards_rpg", "twin_whip")
             };
         }
         // Terra
         if (key.contains("terra")) {
-            return new Identifier[]{
-                    Identifier.of("elemental_wizards_rpg", "terra_shattering_stone_channeling"),
+            return new Identifier[] {
+                    advancedAllowed ? Identifier.of("elemental_wizards_rpg", "terra_shattering_stone_channeling") : null,
                     Identifier.of("elemental_wizards_rpg", "twin_spear")
             };
         }
         // Wind
         if (key.contains("wind")) {
-            return new Identifier[]{
-                    Identifier.of("elemental_wizards_rpg", "wind_aeroburst_channeling"),
+            return new Identifier[] {
+                    advancedAllowed ? Identifier.of("elemental_wizards_rpg", "wind_aeroburst_channeling") : null,
                     Identifier.of("elemental_wizards_rpg", "twin_cutter")
             };
         }
 
         return new Identifier[]{ null, null };
     }
+
 
     private Identifier getPrimarySpellId() {
         Identifier[] spellIds = getAdvancedAndBasicSpellIds();
@@ -446,7 +422,7 @@ public class GuardCastSpellGoal extends Goal {
             return basic;
         }
 
-        return null; // both are on cooldown
+        return null;
     }
 
 

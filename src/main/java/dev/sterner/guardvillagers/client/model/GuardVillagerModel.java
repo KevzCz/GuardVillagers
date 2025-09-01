@@ -66,16 +66,20 @@ public class GuardVillagerModel extends BipedEntityModel<GuardEntity> {
     @Override
     public void setAngles(GuardEntity entityIn, float limbSwing, float limbSwingAmount, float ageInTicks, float netbipedHeadYaw, float bipedHeadPitch) {
         super.setAngles(entityIn, limbSwing, limbSwingAmount, ageInTicks, netbipedHeadYaw, bipedHeadPitch);
+
         ItemStack itemstack = entityIn.getStackInHand(Hand.MAIN_HAND);
         boolean isHoldingShootable = itemstack.getItem() instanceof RangedWeaponItem;
         this.quiver.visible = isHoldingShootable;
+
         boolean hasChestplate = entityIn.getEquippedStack(EquipmentSlot.CHEST).getItem() instanceof ArmorItem;
         this.ArmLShoulderPad.visible = !hasChestplate;
         this.ArmRShoulderPad.visible = !hasChestplate;
+
         if (entityIn.getKickTicks() > 0) {
             float f1 = 1.0F - (float) MathHelper.abs(10 - 2 * entityIn.getKickTicks()) / 10.0F;
             this.rightLeg.pitch = MathHelper.lerp(f1, this.rightLeg.pitch, -1.40F);
         }
+
         if (entityIn.getMainArm() == Arm.RIGHT) {
             this.eatingAnimationRightHand(Hand.MAIN_HAND, entityIn, ageInTicks);
             this.eatingAnimationLeftHand(Hand.OFF_HAND, entityIn, ageInTicks);
@@ -83,7 +87,38 @@ public class GuardVillagerModel extends BipedEntityModel<GuardEntity> {
             this.eatingAnimationRightHand(Hand.OFF_HAND, entityIn, ageInTicks);
             this.eatingAnimationLeftHand(Hand.MAIN_HAND, entityIn, ageInTicks);
         }
+
+        boolean hasCastingFlag = false;
+        try {
+            hasCastingFlag = entityIn.isCastingSpell();
+        } catch (Throwable ignored) {}
+
+        String key = entityIn.getMainHandStack().getItem().getTranslationKey();
+        boolean wandLike = key.contains("wand_") || key.contains("staff_");
+        boolean usingWandNow = entityIn.isUsingItem() && (wandLike || entityIn.isPriest());
+
+        if (hasCastingFlag || usingWandNow) {
+            float t = ageInTicks * 0.35F + entityIn.getId() * 0.10F;
+            float raise = -1.45F;
+            float swirlS = MathHelper.sin(t);
+            float swirlC = MathHelper.cos(t);
+
+            this.rightArm.pitch = raise + 0.15F * MathHelper.sin(t * 0.5F);
+            this.leftArm.pitch  = raise + 0.15F * MathHelper.cos(t * 0.5F);
+
+            this.rightArm.yaw = 0.60F + 0.35F * swirlS;
+            this.leftArm.yaw  = -0.60F - 0.35F * swirlS;
+
+            this.rightArm.roll = 0.50F + 0.35F * swirlC;
+            this.leftArm.roll  = -0.50F - 0.35F * swirlC;
+
+            this.body.roll = 0.06F * MathHelper.sin(t * 0.75F);
+            if (this.hat != null) {
+                this.hat.copyTransform(this.head);
+            }
+        }
     }
+
 
     public void eatingAnimationRightHand(Hand hand, GuardEntity entity, float ageInTicks) {
         ItemStack itemstack = entity.getStackInHand(hand);

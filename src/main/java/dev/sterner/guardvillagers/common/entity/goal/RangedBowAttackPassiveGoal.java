@@ -1,5 +1,6 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
+import dev.sterner.guardvillagers.common.ai.CombatMovementHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
@@ -92,7 +93,6 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
             }
         }
 
-        // Linear scale: 0 damage = 5%, 10 damage = 15%
         double minChance = 0.05;
         double maxChance = 0.15;
         double maxDamage = 10.0;
@@ -104,38 +104,22 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
     public void tick() {
         LivingEntity target = actor.getTarget();
         if (target == null || !target.isAlive()) return;
-
-        double distanceSq = actor.squaredDistanceTo(target);
         boolean canSee = actor.getVisibilityCache().canSee(target);
-        boolean hasSeenRecently = targetSeeingTicker > 0;
+        var mv = CombatMovementHelper.applyBowOrbitMovement(
+                actor,
+                target,
+                this.speed,
+                this.squaredRange,
+                this.targetSeeingTicker,
+                this.combatTicks,
+                this.movingToLeft,
+                this.backward
+        );
+        this.targetSeeingTicker = mv.targetSeeingTicker();
+        this.combatTicks = mv.combatTicks();
+        this.movingToLeft = mv.movingToLeft();
+        this.backward = mv.backward();
 
-        if (canSee != hasSeenRecently) targetSeeingTicker = 0;
-        targetSeeingTicker = canSee ? ++targetSeeingTicker : --targetSeeingTicker;
-
-        if (distanceSq > squaredRange || targetSeeingTicker < 20) {
-            actor.getNavigation().startMovingTo(target, speed);
-            combatTicks = -1;
-        } else {
-            actor.getNavigation().stop();
-            ++combatTicks;
-        }
-
-        if (combatTicks >= 20) {
-            if (actor.getRandom().nextFloat() < 0.3f) movingToLeft = !movingToLeft;
-            if (actor.getRandom().nextFloat() < 0.3f) backward = !backward;
-            combatTicks = 0;
-        }
-
-        if (combatTicks > -1) {
-            if (distanceSq > squaredRange * 0.75f) backward = false;
-            else if (distanceSq < squaredRange * 0.25f) backward = true;
-            actor.getMoveControl().strafeTo(backward ? -0.5f : 0.5f, movingToLeft ? 0.5f : -0.5f);
-        }
-
-        actor.lookAtEntity(target, 30.0f, 30.0f);
-        actor.getLookControl().lookAt(target, 30.0f, 30.0f);
-
-        // Cooldowns
         spellCooldowns.replaceAll((id, time) -> Math.max(time - 1, 0));
         if (cooldown > 0) {
             cooldown--;
@@ -159,7 +143,6 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
                         Spell spell = cachedSpellEntry.value();
                         currentSpellId = spellId;
 
-                        // Prep context
                         windUpTicks = getWindUpTicks(spell);
                         isChanneled = isSpellChanneled(spell);
                         channelTicksLeft = getChannelDuration(spell);
@@ -168,18 +151,16 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
 
                         castSpell(target, spell, cachedSpellEntry);
 
-                        spellCooldowns.put(spellId, 10); // Hardcoded cooldown
-                        cooldown = 0; // No delay before next use
+                        spellCooldowns.put(spellId, 10);
+                        cooldown = 0;
                         return;
                     }
                 }
 
-                // No spell or fail chance: fallback to regular shot
                 ((RangedAttackMob) actor).shootAt(target, BowItem.getPullProgress(useTime));
             }
 
         } else if (cooldown <= 0 && targetSeeingTicker >= -60) {
-            // Start drawing bow
             actor.setCurrentHand(Hand.MAIN_HAND);
         }
     }
@@ -205,7 +186,6 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
                     Vec3d launchPos = SpellHelper.launchPoint(actor);
                     Vec3d direction = target.getEyePos().subtract(launchPos).normalize();
 
-                    // Apply yaw offset from direction_offsets if available
                     float yawOffset = 0;
                     if (spell.deliver.projectile.direction_offsets != null &&
                             i < spell.deliver.projectile.direction_offsets.length) {

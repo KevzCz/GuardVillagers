@@ -8,7 +8,8 @@
     "VillagerTaskListProviderMixin",
     "accessor.CrossbowItemAccessor",
     "GuardFriendlyFireMixin",
-    "CrossbowItemMixin"
+    "CrossbowItemMixin",
+    "ProjectileEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

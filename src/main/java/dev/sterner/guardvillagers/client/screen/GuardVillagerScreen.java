@@ -85,7 +85,7 @@
             int i = (this.width - this.backgroundWidth) / 2;
             int j = (this.height - this.backgroundHeight) / 2;
             ctx.drawTexture(GUARD_GUI_TEXTURES, i, j, 0, 0, this.backgroundWidth, this.backgroundHeight);
-            //InventoryScreen.drawEntity(ctx, i + 51, j + 75, 30    , (float) (i + 51) - this.mousePosX, (float) (j + 75 - 50) - this.mousePosY, this.guardEntity);
+
             InventoryScreen.drawEntity(ctx, i + 51, j + 75, (i + 51), (j + 75 - 50), 30, 0.0625f, this.mousePosX, this.mousePosY, this.guardEntity);
         }
     
@@ -114,14 +114,26 @@
             super.drawForeground(ctx, x, y);
             int health = MathHelper.ceil(guardEntity.getHealth());
             int armor = guardEntity.getArmor();
+            {
+                String rawHoly = guardEntity.getHolySkill();
+                String pretty = "None";
+                if (!"none".equals(rawHoly)) {
+                    String s = rawHoly.contains(":") ? rawHoly.split(":")[1] : rawHoly;
+                    s = s.replace("_channeling", "").replace("_", " ").trim();
+                    pretty = java.util.Arrays.stream(s.split(" "))
+                            .map(w -> w.isEmpty() ? w : Character.toUpperCase(w.charAt(0)) + w.substring(1))
+                            .reduce((a, b) -> a + " " + b)
+                            .orElse(s);
+                }
+                ctx.drawText(this.textRenderer, Text.of("Holy Skill: " + pretty), 0, -20, 0xFFE8A3, false);
+            }
             String rawSkill = guardEntity.getBowSkill();
             if (!"none".equals(rawSkill)) {
                 String skillName = rawSkill.contains(":") ? rawSkill.split(":")[1] : rawSkill;
-                skillName = skillName.replace("_channeling", "") // remove "_channeling"
-                        .replace("_", " ")          // replace underscores with spaces
+                skillName = skillName.replace("_channeling", "")
+                        .replace("_", " ")
                         .trim();
 
-                // Capitalize each word
                 skillName = java.util.Arrays.stream(skillName.split(" "))
                         .map(word -> word.isEmpty() ? word : Character.toUpperCase(word.charAt(0)) + word.substring(1))
                         .reduce((a, b) -> a + " " + b)
@@ -134,23 +146,19 @@
             boolean statusU = guardEntity.hasStatusEffect(StatusEffects.POISON);
             boolean statusW = guardEntity.hasStatusEffect(StatusEffects.WITHER);
             var heart = statusU ? HeartType.POISONED : statusW ? HeartType.WITHERED : guardEntity.isFrozen() ? HeartType.FROZEN : HeartType.NORMAL;
-            //Health
+
             for (int i = 0; i < 10; i++) {
                 this.drawHeart(ctx, HeartType.CONTAINER, (i * 8) + 80, 20, false);
-                //ctx.drawTexture(ICONS, (i * 8) + 80, 20, 16, 0, 9, 9);
+
             }
             for (int i = 0; i < health / 2; i++) {
                 if (health % 2 != 0 && health / 2 == i + 1) {
                     this.drawHeart(ctx, HeartType.NORMAL, (i * 8) + 80, 20, false);
                     this.drawHeart(ctx, HeartType.NORMAL, ((i + 1) * 8) + 80, 20, true);
-                    //ctx.drawTexture(ICONS, (i * 8) + 80, 20, 16 + 9 * (4 + statusU), 0, 9, 9);
-                    //ctx.drawTexture(ICONS, ((i + 1) * 8) + 80, 20, 16 + 9 * (5 + statusU), 0, 9, 9);
                 } else {
-                    //ctx.drawTexture(ICONS, (i * 8) + 80, 20, 16 + 9 * (4 + statusU), 0, 9, 9);
                     this.drawHeart(ctx, HeartType.NORMAL, (i * 8) + 80, 20, false);
                 }
             }
-            //Armor
             for (int i = 0; i < 10; i++) {
                 ctx.drawGuiTexture(ARMOR_EMPTY_TEXTURE, (i * 8) + 80, 30, 9, 9);
             }

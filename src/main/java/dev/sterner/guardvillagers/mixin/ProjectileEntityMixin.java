@@ -19,12 +19,11 @@ public abstract class ProjectileEntityMixin extends Entity {
 
     @Shadow public abstract Entity getOwner();
 
-    // Yarn name is usually "canHit", but some mappings use "canHitEntity".
-    @Inject(method = {"canHit", "canHitEntity"}, at = @At("HEAD"), cancellable = true)
-    private void guardvillagers$ignoreFriendly(Entity target, CallbackInfoReturnable<Boolean> cir) {
+    @Inject(method = "canHit(Lnet/minecraft/entity/Entity;)Z",
+            at = @At("HEAD"), cancellable = true)
+    private void guardvillagers$passThroughGuards(Entity target, CallbackInfoReturnable<Boolean> cir) {
         Entity owner = this.getOwner();
         if (owner instanceof GuardEntity && target instanceof GuardEntity) {
-            // Don't collide with other guards
             cir.setReturnValue(false);
         }
     }

@@ -37,18 +37,6 @@
             {
               "type": "minecraft:item",
               "name": "wizards:wand_fire"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "spellbladenext:frost_blade"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "spellbladenext:arcane_blade"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "spellbladenext:fire_blade"
             }
           ],
           "weight": 10
@@ -67,18 +55,6 @@
             {
               "type": "minecraft:item",
               "name": "wizards:wand_netherite_fire"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "spellbladenext:frost_claymore"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "spellbladenext:arcane_claymore"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "spellbladenext:fire_claymore"
             }
           ],
           "weight": 2

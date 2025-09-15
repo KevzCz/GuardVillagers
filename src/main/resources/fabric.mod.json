@@ -31,11 +31,11 @@
     "java": ">=21",
     "fabric-api": "*",
     "spell_engine": "*",
-    "wizards" : "*",
-    "spellbladenext": "*"
+    "wizards" : "*"
   },
   "suggests": {
     "elemental_wizards_rpg": "*",
-    "archers_expansion": "*"
+    "archers_expansion": "*",
+    "spellbladenext": "*"
   }
 }

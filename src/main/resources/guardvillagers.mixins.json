@@ -9,7 +9,8 @@
     "accessor.CrossbowItemAccessor",
     "GuardFriendlyFireMixin",
     "CrossbowItemMixin",
-    "ProjectileEntityMixin"
+    "ProjectileEntityMixin",
+    "EntityRelationsMixin"
   ],
   "injectors": {
     "defaultRequire": 1

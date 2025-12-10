@@ -10,16 +10,14 @@ import eu.midnightdust.lib.config.MidnightConfig;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
 import net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityTypeBuilder;
-import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
-import net.fabricmc.fabric.api.resource.ResourcePackActivationType;
 import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerType;
-import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.brain.MemoryModuleType;
 import net.minecraft.entity.damage.DamageSource;
@@ -55,8 +53,6 @@ import java.util.function.Predicate;
 
 public class GuardVillagers implements ModInitializer {
     public static final String MODID = "guardvillagers";
-
-    // ADD THIS:
     public static final Logger LOGGER = LoggerFactory.getLogger(MODID);
     public static final ScreenHandlerType<GuardVillagerScreenHandler> GUARD_SCREEN_HANDLER =
             new ExtendedScreenHandlerType<>((syncId, inventory, data) -> new GuardVillagerScreenHandler(syncId, inventory, data), GuardData.PACKET_CODEC);
@@ -65,6 +61,8 @@ public class GuardVillagers implements ModInitializer {
             FabricEntityTypeBuilder.create(SpawnGroup.CREATURE, GuardEntity::new).dimensions(EntityDimensions.fixed(0.6f, 1.8f)).build());
 
     public static final Item GUARD_SPAWN_EGG = new SpawnEggItem(GUARD_VILLAGER, 5651507, 8412749, new Item.Settings());
+
+    private static final List<Runnable> PENDING_GUARD_SPAWNS = new ArrayList<>();
 
     public static Hand getHandWith(LivingEntity livingEntity, Predicate<Item> itemPredicate) {
         return itemPredicate.test(livingEntity.getMainHandStack().getItem()) ? Hand.MAIN_HAND : Hand.OFF_HAND;
@@ -80,7 +78,6 @@ public class GuardVillagers implements ModInitializer {
 
     @Override
     public void onInitialize() {
-
         MidnightConfig.init(MODID, GuardVillagersConfig.class);
         FabricDefaultAttributeRegistry.register(GUARD_VILLAGER, GuardEntity.createAttributes());
 
@@ -108,56 +105,46 @@ public class GuardVillagers implements ModInitializer {
             if (entity instanceof VillagerEntity villagerEntity && villagerEntity.isNatural()) {
                 var spawnChance = MathHelper.clamp(GuardVillagersConfig.spawnChancePerVillager, 0f, 1f);
                 if (world.random.nextFloat() < spawnChance) {
-                    GuardEntity guardEntity = GUARD_VILLAGER.create(world);
-                    guardEntity.spawnWithArmor= true;
-                    guardEntity.initialize(world, world.getLocalDifficulty(villagerEntity.getBlockPos()), SpawnReason.NATURAL, null);
-                    guardEntity.refreshPositionAndAngles(villagerEntity.getBlockPos(), 0.0f, 0.0f);
+                    // Defer spawning to next tick to avoid ConcurrentModificationException
+                    synchronized (PENDING_GUARD_SPAWNS) {
+                        PENDING_GUARD_SPAWNS.add(() -> {
+                            // Check if villager still exists and is valid
+                            if (! villagerEntity.isRemoved() && villagerEntity.isAlive()) {
+                                GuardEntity guardEntity = GUARD_VILLAGER.create(world);
+                                if (guardEntity != null) {
+                                    guardEntity.spawnWithArmor = true;
+                                    guardEntity.initialize(world, world.getLocalDifficulty(villagerEntity.getBlockPos()), SpawnReason.NATURAL, null);
+                                    guardEntity.refreshPositionAndAngles(villagerEntity.getBlockPos(), 0.0f, 0.0f);
 
-                    int i = GuardEntity.getRandomTypeForBiome(guardEntity.getWorld(), guardEntity.getBlockPos());
-                    guardEntity.setGuardVariant(i);
-                    guardEntity.setPersistent();
-                    guardEntity.setCustomName(villagerEntity.getCustomName());
-                    guardEntity.setCustomNameVisible(villagerEntity.isCustomNameVisible());
-                    guardEntity.setEquipmentDropChance(EquipmentSlot.HEAD, 100.0F);
-                    guardEntity.setEquipmentDropChance(EquipmentSlot.CHEST, 100.0F);
-                    guardEntity.setEquipmentDropChance(EquipmentSlot.FEET, 100.0F);
-                    guardEntity.setEquipmentDropChance(EquipmentSlot.LEGS, 100.0F);
-                    guardEntity.setEquipmentDropChance(EquipmentSlot.MAINHAND, 100.0F);
-                    guardEntity.setEquipmentDropChance(EquipmentSlot.OFFHAND, 100.0F);
+                                    int i = GuardEntity.getRandomTypeForBiome(guardEntity.getWorld(), guardEntity.getBlockPos());
+                                    guardEntity.setGuardVariant(i);
+                                    guardEntity.setPersistent();
+                                    guardEntity.setCustomName(villagerEntity.getCustomName());
+                                    guardEntity.setCustomNameVisible(villagerEntity.isCustomNameVisible());
+                                    guardEntity.setEquipmentDropChance(EquipmentSlot.HEAD, 100.0F);
+                                    guardEntity.setEquipmentDropChance(EquipmentSlot.CHEST, 100.0F);
+                                    guardEntity.setEquipmentDropChance(EquipmentSlot.FEET, 100.0F);
+                                    guardEntity.setEquipmentDropChance(EquipmentSlot.LEGS, 100.0F);
+                                    guardEntity.setEquipmentDropChance(EquipmentSlot.MAINHAND, 100.0F);
+                                    guardEntity.setEquipmentDropChance(EquipmentSlot.OFFHAND, 100.0F);
 
-                    world.spawnEntityAndPassengers(guardEntity);
+                                    world.spawnEntityAndPassengers(guardEntity);
+                                }
+                            }
+                        });
+                    }
                 }
             }
         });
-        if (FabricLoader.getInstance().isModLoaded("archers")) {
-            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
-                ResourceManagerHelper.registerBuiltinResourcePack(
-                        Identifier.of("guardvillagers", "archerscompat"), // must match your folder name
-                        modContainer,
-                        ResourcePackActivationType.ALWAYS_ENABLED
-                );
-            });
-        }
-        if (FabricLoader.getInstance().isModLoaded("archers_expansion")) {
-            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
-                ResourceManagerHelper.registerBuiltinResourcePack(
-                        Identifier.of("guardvillagers", "archersexpansioncompat"),
-                        modContainer,
-                        ResourcePackActivationType.ALWAYS_ENABLED
-                );
-            });
-        }
 
-        if (FabricLoader.getInstance().isModLoaded("elemental_wizards_rpg")) {
-            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
-                ResourceManagerHelper.registerBuiltinResourcePack(
-                        Identifier.of("guardvillagers", "elementalwizardscompat"),
-                        modContainer,
-                        ResourcePackActivationType.ALWAYS_ENABLED
-                );
-            });
-        }
-
+        ServerTickEvents.END_WORLD_TICK.register(world -> {
+            synchronized (PENDING_GUARD_SPAWNS) {
+                if (!PENDING_GUARD_SPAWNS.isEmpty()) {
+                    PENDING_GUARD_SPAWNS.forEach(Runnable::run);
+                    PENDING_GUARD_SPAWNS.clear();
+                }
+            }
+        });
     }
 
 
@@ -168,7 +155,7 @@ public class GuardVillagers implements ModInitializer {
         boolean shouldDamage = true;
         boolean isVillager = entity.getType() == EntityType.VILLAGER || entity.getType() == GuardVillagers.GUARD_VILLAGER;
         boolean isGolem = isVillager || entity.getType() == EntityType.IRON_GOLEM;
-        if (isGolem && attacker.getType() == GuardVillagers.GUARD_VILLAGER && !GuardVillagersConfig.guardArrowsHurtVillagers) {
+        if (isGolem && attacker.getType() == GuardVillagers.GUARD_VILLAGER && ! GuardVillagersConfig.guardArrowsHurtVillagers) {
             shouldDamage = false;
         }
         if (isVillager && attacker instanceof MobEntity) {
@@ -176,7 +163,7 @@ public class GuardVillagers implements ModInitializer {
             for (MobEntity mob : list) {
                 boolean type = mob.getType() == GUARD_VILLAGER || mob.getType() == EntityType.IRON_GOLEM;
                 boolean trueSourceGolem = attacker.getType() == GUARD_VILLAGER || attacker.getType() == EntityType.IRON_GOLEM;
-                if (!trueSourceGolem && type && mob.getTarget() == null)
+                if (! trueSourceGolem && type && mob.getTarget() == null)
                     mob.setTarget((MobEntity) attacker);
             }
         }
@@ -189,11 +176,11 @@ public class GuardVillagers implements ModInitializer {
             if (entityHitResult != null) {
                 Entity target = entityHitResult.getEntity();
                 if (target instanceof VillagerEntity villagerEntity) {
-                    if (!villagerEntity.isBaby()) {
+                    if (! villagerEntity.isBaby()) {
                         if (villagerEntity.getVillagerData().getProfession() == VillagerProfession.NONE || villagerEntity.getVillagerData().getProfession() == VillagerProfession.NITWIT) {
-                            if (!GuardVillagersConfig.convertVillagerIfHaveHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.convertVillagerIfHaveHotv) {
+                            if (! GuardVillagersConfig.convertVillagerIfHaveHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.convertVillagerIfHaveHotv) {
                                 convertVillager(villagerEntity, player, world);
-                                if (!player.getAbilities().creativeMode)
+                                if (! player.getAbilities().creativeMode)
                                     itemStack.decrement(1);
                                 return ActionResult.SUCCESS;
                             }
@@ -250,6 +237,6 @@ public class GuardVillagers implements ModInitializer {
 
     public static boolean hotvChecker(PlayerEntity player, GuardEntity guard) {
         return player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv
-                || !GuardVillagersConfig.giveGuardStuffHotv || guard.getPlayerEntityReputation(player) > GuardVillagersConfig.reputationRequirement && !player.getWorld().isClient();
+                || ! GuardVillagersConfig.giveGuardStuffHotv || guard.getPlayerEntityReputation(player) > GuardVillagersConfig.reputationRequirement && ! player.getWorld().isClient();
     }
 }

@@ -8,6 +8,7 @@ import net.minecraft.entity.*;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.registry.Registries;
+import net.minecraft.registry.RegistryKey;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvent;
@@ -254,15 +255,12 @@ public class GuardCastSpellGoal extends Goal {
     }
 
     private void castSpellByWandType(Spell spell, RegistryEntry<Spell> spellEntry, LivingEntity target) {
-        String type = String.valueOf(spell.deliver.type).toUpperCase();
+        String type = String.valueOf(spell. deliver.type).toUpperCase();
 
-        if ("PROJECTILE".equals(type)
-                && spell.deliver.projectile != null
-                && spell.deliver.projectile.projectile != null) {
-
+        if ("PROJECTILE".equals(type) && spell.deliver.projectile != null) {  // Removed the nested check
             SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
                     .power(SpellPower.getSpellPower(spell.school, guard))
-                    .channeled(isChanneled ? 1.0f : 0.0f)
+                    .channeled(isChanneled ?  1.0f : 0.0f)
                     .position(guard.getEyePos())
                     .target(SpellHelper.focusMode(spell))
                     .distance(1.0f);
@@ -280,36 +278,60 @@ public class GuardCastSpellGoal extends Goal {
             guard.swingHand(Hand.MAIN_HAND, true);
         } else if ("METEOR".equals(type) || "AREA".equals(type)) {
             castAdvancedSpell(spell, spellEntry, target);
-            guard.swingHand(Hand.MAIN_HAND, true);
+            guard.swingHand(Hand. MAIN_HAND, true);
         } else if ("DIRECT".equals(type)) {
-            SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
-                    .power(SpellPower.getSpellPower(spell.school, guard))
-                    .channeled(isChanneled ? 1.0f : 0.0f)
-                    .position(guard.getEyePos())
-                    .target(SpellHelper.focusMode(spell))
-                    .distance(1.0f);
+            if (validateSpellStatusEffects(spell)) {
+                SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
+                        .power(SpellPower.getSpellPower(spell.school, guard))
+                        .channeled(isChanneled ? 1.0f : 0.0f)
+                        .position(guard.getEyePos())
+                        .target(SpellHelper.focusMode(spell))
+                        .distance(1.0f);
 
-            SpellHelper.performImpacts(
-                    guard.getWorld(),
-                    guard,
-                    target,
-                    guard,
-                    spellEntry,
-                    spell.impacts,
-                    context
-            );
-            guard.swingHand(Hand.MAIN_HAND, true);
-            if (spell.release != null && spell.release.sound != null) {
-                Identifier soundId = Identifier.tryParse(spell.release.sound.id());
-                if (soundId != null) {
-                    SoundEvent soundEvent = Registries.SOUND_EVENT.get(soundId);
-                    guard.getWorld().playSound(null, guard.getBlockPos(), soundEvent, SoundCategory.HOSTILE, 1.0f, 1.0f);
+                SpellHelper. performImpacts(
+                        guard.getWorld(),
+                        guard,
+                        target,
+                        guard,
+                        spellEntry,
+                        spell.impacts,
+                        context
+                );
+                guard.swingHand(Hand.MAIN_HAND, true);
+                if (spell.release != null && spell.release.sound != null) {
+                    Identifier soundId = Identifier.tryParse(spell.release.sound.id());
+                    if (soundId != null) {
+                        SoundEvent soundEvent = Registries.SOUND_EVENT.get(soundId);
+                        guard.getWorld().playSound(null, guard.getBlockPos(), soundEvent, SoundCategory.HOSTILE, 1.0f, 1.0f);
+                    }
                 }
+            } else {
+                GuardVillagers.LOGGER.warn("Spell {} has invalid status effects, falling back to projectile",
+                        ((RegistryKey)spellEntry.getKey().get()).getValue());
+                castBasicProjectile(target);
             }
-
         } else {
             castBasicProjectile(target);
         }
+    }
+
+    private boolean validateSpellStatusEffects(Spell spell) {
+        if (spell.impacts == null) {
+            return true;
+        }
+
+        for (Spell.Impact impact : spell.impacts) {
+            if (impact.action. type == Spell.Impact.Action.Type.STATUS_EFFECT) {
+                Spell.Impact.Action.StatusEffect statusEffect = impact. action.status_effect;
+                if (statusEffect != null && statusEffect.effect_id != null) {
+                    Identifier id = Identifier.tryParse(statusEffect.effect_id);
+                    if (id == null || !Registries.STATUS_EFFECT.containsId(id)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
 
@@ -336,9 +358,9 @@ public class GuardCastSpellGoal extends Goal {
         if (key.contains("wand_frost") || key.contains("staff_frost")) return Identifier.of("wizards", "twin_frostshard");
         if (key.contains("wand_arcane") || key.contains("staff_arcane")) return Identifier.of("wizards", "twin_arcanebolt");
 
-        if (key.contains("wand_aqua") || key.contains("staff_aqua")) return Identifier.of("elemental_wizards_rpg", "twin_whip");
-        if (key.contains("wand_terra") || key.contains("staff_terra")) return Identifier.of("elemental_wizards_rpg", "twin_spear");
-        if (key.contains("wand_wind") || key.contains("staff_wind")) return Identifier.of("elemental_wizards_rpg", "twin_cutter");
+        if (key.contains("wand_aqua") || key.contains("staff_aqua") || key.contains("wand_kelp"))  return Identifier.of("elemental_wizards_rpg", "twin_whip");
+        if (key.contains("wand_terra") || key.contains("staff_terra") || key.contains("wand_clay")) return Identifier.of("elemental_wizards_rpg", "twin_spear");
+        if (key.contains("wand_wind") || key.contains("staff_wind") || key.contains("wand_feather"))  return Identifier.of("elemental_wizards_rpg", "twin_cutter");
 
         //Advanced spells
         if (key.contains("wand_netherite_fire") || key.contains("staff_netherite_fire") || key.contains("staff_ruby_fire")) return Identifier.of("wizards", "fire_meteor");
@@ -385,21 +407,21 @@ public class GuardCastSpellGoal extends Goal {
             };
         }
         // Aqua
-        if (key.contains("aqua")) {
+        if (key.contains("aqua") || key.contains("wand_kelp")) {
             return new Identifier[] {
                     advancedAllowed ? Identifier.of("elemental_wizards_rpg", "aqua_explosive_bubbles_channeling") : null,
                     Identifier.of("elemental_wizards_rpg", "twin_whip")
             };
         }
         // Terra
-        if (key.contains("terra")) {
+        if (key.contains("terra") || key.contains("wand_clay")) {
             return new Identifier[] {
                     advancedAllowed ? Identifier.of("elemental_wizards_rpg", "terra_shattering_stone_channeling") : null,
                     Identifier.of("elemental_wizards_rpg", "twin_spear")
             };
         }
         // Wind
-        if (key.contains("wind")) {
+        if (key.contains("wind") || key.contains("wand_feather")) {
             return new Identifier[] {
                     advancedAllowed ? Identifier.of("elemental_wizards_rpg", "wind_aeroburst_channeling") : null,
                     Identifier.of("elemental_wizards_rpg", "twin_cutter")

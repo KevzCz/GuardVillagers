@@ -2,11 +2,10 @@
   "school": "WATER",
   "group": "primary",
   "range": 16,
-  "tier": 1,
+  "tier": 0,
   "learn": {},
 
   "active": {
-    "scroll": {},
     "cast": {
       "duration": 2,
       "channel_ticks": 20,
@@ -19,19 +18,12 @@
       "particles": [
         {
           "particle_id": "more_rpg_classes:big_splash",
-          "shape": "WIDE_PIPE",
+          "shape": "PIPE",
           "origin": "FEET",
-          "count": 5.0,
+          "count": 1.0,
           "min_speed": 0.01,
-          "max_speed": 0.05
-        },
-        {
-          "particle_id": "more_rpg_classes:splash",
-          "shape": "CIRCLE",
-          "origin": "FEET",
-          "count": 10.0,
-          "min_speed": 0.05,
-          "max_speed": 0.1
+          "max_speed": 0.05,
+          "extent": 0.5
         },
         {
           "particle_id": "more_rpg_classes:water_circle",
@@ -48,87 +40,29 @@
   "target": {
     "type": "AIM",
     "aim": {
-      "sticky": false,
-      "required": true
+      "use_caster_as_fallback": true
     }
   },
 
   "release": {
-    "animation": "spell_engine:one_handed_projectile_release",
-    "particles": [
-      {
-        "particle_id": "more_rpg_classes:splash",
-        "shape": "CIRCLE",
-        "origin": "FEET",
-        "count": 10.0,
-        "min_speed": 0.05,
-        "max_speed": 0.1
-      },
-      {
-        "particle_id": "more_rpg_classes:water_circle",
-        "shape": "CIRCLE",
-        "origin": "FEET",
-        "count": 1.0,
-        "min_speed": 1.0,
-        "max_speed": 1.0
-      }
-    ]
+    "animation": "spell_engine:one_handed_projectile_release"
   },
 
   "impacts": [
     {
-      "target_modifiers": [
-        {
-          "conditions": [
-            {
-              "entity_type": "#more_rpg_classes:vulnerable_to_water_spells"
-            }
-          ],
-          "modifier": {
-            "critical_chance_bonus": 0.3
-          }
-        },
-        {
-          "conditions": [
-            {
-              "entity_type": "#more_rpg_classes:resistant_to_water_spells"
-            }
-          ],
-          "modifier": {
-            "power_multiplier": -0.3
-          }
-        }
-      ],
       "action": {
-        "type": "DAMAGE",
-        "damage": {
-          "spell_power_coefficient": 0.75,
-          "knockback": 0.5
+        "type": "HEAL",
+        "heal": {
+          "spell_power_coefficient": 1.0
         }
       },
       "particles": [
         {
-          "particle_id": "more_rpg_classes:big_splash",
-          "shape": "PILLAR",
-          "origin": "FEET",
-          "count": 20,
-          "min_speed": 0.05,
-          "max_speed": 0.2
-        },
-        {
-          "particle_id": "more_rpg_classes:splash",
-          "shape": "CIRCLE",
-          "origin": "FEET",
-          "count": 15.0,
-          "min_speed": 0.05,
-          "max_speed": 0.2
-        },
-        {
-          "particle_id": "more_rpg_classes:water_whip",
+          "particle_id": "more_rpg_classes:water_heal",
           "shape": "SPHERE",
           "origin": "CENTER",
-          "count": 1.0,
-          "min_speed": 0.1,
+          "count": 5,
+          "min_speed": 0.05,
           "max_speed": 0.1
         },
         {
@@ -141,6 +75,43 @@
         }
       ],
       "sound": {
+        "id": "spell_engine:generic_healing_impact_1"
+      }
+    },
+    {
+      "action": {
+        "type": "DAMAGE",
+        "damage": {
+          "spell_power_coefficient": 0.6
+        }
+      },
+      "particles": [
+        {
+          "particle_id": "more_rpg_classes:big_splash",
+          "shape": "PILLAR",
+          "origin": "FEET",
+          "count": 10,
+          "min_speed": 0.05,
+          "max_speed": 0.2
+        },
+        {
+          "particle_id": "more_rpg_classes:water_circle",
+          "shape": "CIRCLE",
+          "origin": "FEET",
+          "count": 0.1,
+          "min_speed": 0.2,
+          "max_speed": 1.0
+        },
+        {
+          "particle_id": "more_rpg_classes:water_splash",
+          "shape": "SPHERE",
+          "origin": "CENTER",
+          "count": 2.0,
+          "min_speed": 0.2,
+          "max_speed": 0.5
+        }
+      ],
+      "sound": {
         "id": "more_rpg_classes:water_magic_impact1",
         "volume": 0.4
       }
@@ -150,7 +121,7 @@
         {
           "conditions": [
             {
-              "entity_type": "#more_rpg_classes:resistant_to_water_spells"
+              "entity_type": "#more_rpg_classes:resistant_to_water"
             }
           ],
           "execute": "DENY"
@@ -159,10 +130,9 @@
       "action": {
         "type": "STATUS_EFFECT",
         "status_effect": {
-          "effect_id": "elemental_wizards_rpg:soaked",
-          "duration": 6.0,
+          "effect_id": "more_rpg_classes:soaked",
+          "duration": 4,
           "apply_mode": "SET",
-          "amplifier": 0,
           "show_particles": false
         }
       }

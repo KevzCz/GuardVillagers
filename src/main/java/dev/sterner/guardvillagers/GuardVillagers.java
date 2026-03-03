@@ -1,58 +1,41 @@
 package dev.sterner.guardvillagers;
 
-import dev.sterner.guardvillagers.common.entity.GuardEntity;
-import dev.sterner.guardvillagers.common.entity.GuardEntityLootTables;
-import dev.sterner.guardvillagers.common.network.GuardData;
-import dev.sterner.guardvillagers.common.network.GuardFollowPacket;
-import dev.sterner.guardvillagers.common.network.GuardPatrolPacket;
-import dev.sterner.guardvillagers.common.screenhandler.GuardVillagerScreenHandler;
-import eu.midnightdust.lib.config.MidnightConfig;
-import net.fabricmc.api.ModInitializer;
-import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
-import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.fabricmc.fabric.api.event.player.UseEntityCallback;
-import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;
-import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
-import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.fabricmc.fabric.api.object.builder.v1.entity.FabricDefaultAttributeRegistry;
-import net.fabricmc.fabric.api.object.builder.v1.entity.FabricEntityTypeBuilder;
-import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
-import net.fabricmc.fabric.api.resource.ResourcePackActivationType;
-import net.fabricmc.fabric.api.screenhandler.v1.ExtendedScreenHandlerType;
-import net.fabricmc.loader.api.FabricLoader;
+import dev.sterner.guardvillagers.common.command.*;
+import dev.sterner.guardvillagers.common.entity.*;
+import dev.sterner.guardvillagers.common.network.*;
+import dev.sterner.guardvillagers.common.screenhandler.*;
+import eu.midnightdust.lib.config.*;
+import net.fabricmc.api.*;
+import net.fabricmc.fabric.api.command.v2.*;
+import net.fabricmc.fabric.api.entity.event.v1.*;
+import net.fabricmc.fabric.api.event.lifecycle.v1.*;
+import net.fabricmc.fabric.api.event.player.*;
+import net.fabricmc.fabric.api.itemgroup.v1.*;
+import net.fabricmc.fabric.api.networking.v1.*;
+import net.fabricmc.fabric.api.object.builder.v1.entity.*;
+import net.fabricmc.fabric.api.screenhandler.v1.*;
 import net.minecraft.entity.*;
-import net.minecraft.entity.ai.brain.MemoryModuleType;
-import net.minecraft.entity.damage.DamageSource;
-import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.ai.brain.*;
+import net.minecraft.entity.damage.*;
+import net.minecraft.entity.effect.*;
 import net.minecraft.entity.mob.*;
 import net.minecraft.entity.passive.*;
-import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.player.*;
 import net.minecraft.item.*;
-import net.minecraft.particle.ParticleEffect;
-import net.minecraft.particle.ParticleTypes;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.screen.ScreenHandlerType;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
-import net.minecraft.util.ActionResult;
-import net.minecraft.util.Hand;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.hit.EntityHitResult;
-import net.minecraft.util.math.MathHelper;
-import net.minecraft.village.VillagerProfession;
-import net.minecraft.world.World;
-import net.minecraft.world.spawner.SpecialSpawner;
-import org.jetbrains.annotations.Nullable;
-import org.lwjgl.system.MathUtil;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import net.minecraft.particle.*;
+import net.minecraft.registry.*;
+import net.minecraft.screen.*;
+import net.minecraft.sound.*;
+import net.minecraft.util.*;
+import net.minecraft.util.hit.*;
+import net.minecraft.util.math.*;
+import net.minecraft.village.*;
+import net.minecraft.world.*;
+import org.jetbrains.annotations.*;
+import org.slf4j.*;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.Predicate;
+import java.util.*;
+import java.util.function.*;
 
 public class GuardVillagers implements ModInitializer {
     public static final String MODID = "guardvillagers";
@@ -83,7 +66,8 @@ public class GuardVillagers implements ModInitializer {
     public void onInitialize() {
         MidnightConfig.init(MODID, GuardVillagersConfig.class);
         FabricDefaultAttributeRegistry.register(GUARD_VILLAGER, GuardEntity.createAttributes());
-
+        
+        CommandRegistrationCallback.EVENT.register(GuardDebugCommand::register);
         Registry.register(Registries.ITEM, id("guard_spawn_egg"), GUARD_SPAWN_EGG);
         Registry.register(Registries.SCREEN_HANDLER, id("guard_screen"), GUARD_SCREEN_HANDLER);
         Registry.register(Registries.SOUND_EVENT, id("entity.guard.ambient"), GUARD_AMBIENT);
@@ -108,10 +92,8 @@ public class GuardVillagers implements ModInitializer {
             if (entity instanceof VillagerEntity villagerEntity && villagerEntity.isNatural()) {
                 var spawnChance = MathHelper.clamp(GuardVillagersConfig.spawnChancePerVillager, 0f, 1f);
                 if (world.random.nextFloat() < spawnChance) {
-                    // Defer spawning to next tick to avoid ConcurrentModificationException
                     synchronized (PENDING_GUARD_SPAWNS) {
                         PENDING_GUARD_SPAWNS.add(() -> {
-                            // Check if villager still exists and is valid
                             if (! villagerEntity.isRemoved() && villagerEntity.isAlive()) {
                                 GuardEntity guardEntity = GUARD_VILLAGER.create(world);
                                 if (guardEntity != null) {
@@ -148,35 +130,6 @@ public class GuardVillagers implements ModInitializer {
                 }
             }
         });
-
-        if (FabricLoader.getInstance().isModLoaded("archers")) {
-            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
-                ResourceManagerHelper.registerBuiltinResourcePack(
-                        Identifier.of("guardvillagers", "archerscompat"),
-                        modContainer,
-                        ResourcePackActivationType.ALWAYS_ENABLED
-                );
-            });
-        }
-        if (FabricLoader.getInstance().isModLoaded("archers_expansion")) {
-            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
-                ResourceManagerHelper.registerBuiltinResourcePack(
-                        Identifier.of("guardvillagers", "archersexpansioncompat"),
-                        modContainer,
-                        ResourcePackActivationType.ALWAYS_ENABLED
-                );
-            });
-        }
-
-        if (FabricLoader.getInstance().isModLoaded("elemental_wizards_rpg")) {
-            FabricLoader.getInstance().getModContainer("guardvillagers").ifPresent(modContainer -> {
-                ResourceManagerHelper.registerBuiltinResourcePack(
-                        Identifier.of("guardvillagers", "elementalwizardscompat"),
-                        modContainer,
-                        ResourcePackActivationType.ALWAYS_ENABLED
-                );
-            });
-        }
     }
 
 

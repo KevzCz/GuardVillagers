@@ -9,7 +9,6 @@ import net.minecraft.entity.mob.CreeperEntity;
 import net.minecraft.entity.mob.RavagerEntity;
 import net.minecraft.item.BowItem;
 import net.minecraft.item.CrossbowItem;
-import net.minecraft.item.Items;
 import net.minecraft.util.Hand;
 
 public class RaiseShieldGoal extends Goal {
@@ -24,7 +23,7 @@ public class RaiseShieldGoal extends Goal {
     public boolean canStart() {
         if (guard.isCastingSpell()) return false;
         return !CrossbowItem.isCharged(guard.getMainHandStack()) &&
-                guard.getOffHandStack().getItem() == Items.SHIELD &&
+                guard.hasShield() &&
                 raiseShield() && guard.shieldCoolDown == 0;
     }
 
@@ -36,7 +35,7 @@ public class RaiseShieldGoal extends Goal {
 
     @Override
     public void start() {
-        if (guard.getOffHandStack().getItem() == Items.SHIELD)
+        if (guard.hasShield())
             guard.setCurrentHand(Hand.OFF_HAND);
     }
 

@@ -26,6 +26,9 @@ repositories {
 		name = 'Shedaniel'
 		url = 'https://maven.shedaniel.me/'
 	}
+	maven {
+		url "https://cursemaven.com"
+	}
 }
 loom {
 	accessWidenerPath = file("src/main/resources/guardvillagers.accesswidener")
@@ -37,7 +40,7 @@ dependencies {
 
 	// Fabric API
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
-
+	modCompileOnly "curse.maven:spellblade-next-811662:7367711"
 	// Modrinth Mods
 	modImplementation("maven.modrinth:spell-power:${project.spell_power_version}")
 	modImplementation("maven.modrinth:spell-engine:${project.spell_engine_version}")

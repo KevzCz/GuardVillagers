@@ -10,7 +10,9 @@
     "GuardFriendlyFireMixin",
     "CrossbowItemMixin",
     "ProjectileEntityMixin",
-    "EntityRelationsMixin"
+    "EntityRelationsMixin",
+    "SpellProjectileMixin",
+    "PersistentProjectileEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1

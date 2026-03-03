@@ -89,15 +89,40 @@ public class GuardVillagerModel extends BipedEntityModel<GuardEntity> {
         }
 
         boolean hasCastingFlag = false;
+        boolean isMeleeCasting = false;
         try {
             hasCastingFlag = entityIn.isCastingSpell();
+            isMeleeCasting = entityIn.isCastingMeleeSpell();
         } catch (Throwable ignored) {}
 
         String key = entityIn.getMainHandStack().getItem().getTranslationKey();
         boolean wandLike = key.contains("wand_") || key.contains("staff_");
         boolean usingWandNow = entityIn.isUsingItem() && (wandLike || entityIn.isPriest());
 
-        if (hasCastingFlag || usingWandNow) {
+        // Melee archetype spell casting animation (spinning/swinging)
+        if (hasCastingFlag && isMeleeCasting) {
+            float t = ageInTicks * 0.5F + entityIn.getId() * 0.10F;
+            
+            float spinSpeed = 2.5F;
+            float spinAngle = t * spinSpeed;
+            
+            this.rightArm.pitch = -0.4F;
+            this.rightArm.yaw = 0.8F + 0.3F * MathHelper.sin(spinAngle);
+            this.rightArm.roll = 0.2F;
+            
+            this.leftArm.pitch = -0.4F;
+            this.leftArm.yaw = -0.8F - 0.3F * MathHelper.sin(spinAngle);
+            this.leftArm.roll = -0.2F;
+            
+            this.body.yaw = MathHelper.sin(spinAngle) * 0.15F;
+            this.body.roll = 0.0F;
+            
+            if (this.hat != null) {
+                this.hat.copyTransform(this.head);
+            }
+        }
+        // Magic/wand spell casting animation
+        else if (hasCastingFlag || usingWandNow) {
             float t = ageInTicks * 0.35F + entityIn.getId() * 0.10F;
             float raise = -1.45F;
             float swirlS = MathHelper.sin(t);

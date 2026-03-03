@@ -1,16 +1,14 @@
 package dev.sterner.guardvillagers;
 
-import dev.sterner.guardvillagers.client.model.GuardArmorModel;
-import dev.sterner.guardvillagers.client.model.GuardSteveModel;
-import dev.sterner.guardvillagers.client.model.GuardVillagerModel;
-import dev.sterner.guardvillagers.client.renderer.GuardRenderer;
-import dev.sterner.guardvillagers.client.screen.GuardVillagerScreen;
-import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.rendering.v1.EntityModelLayerRegistry;
-import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
-import net.minecraft.client.gui.screen.ingame.HandledScreens;
-import net.minecraft.client.render.entity.model.EntityModelLayer;
-import net.minecraft.util.Identifier;
+import dev.sterner.guardvillagers.client.model.*;
+import dev.sterner.guardvillagers.client.renderer.*;
+import dev.sterner.guardvillagers.client.screen.*;
+import net.fabricmc.api.*;
+import net.fabricmc.fabric.api.client.rendering.v1.*;
+import net.minecraft.client.*;
+import net.minecraft.client.gui.screen.ingame.*;
+import net.minecraft.client.render.*;
+import net.minecraft.client.render.entity.model.*;
 
 import static dev.sterner.guardvillagers.GuardVillagers.*;
 
@@ -30,6 +28,18 @@ public class GuardVillagersClient implements ClientModInitializer {
         EntityModelLayerRegistry.registerModelLayer(GUARD_ARMOR_OUTER, GuardArmorModel::createOuterArmorLayer);
         EntityModelLayerRegistry.registerModelLayer(GUARD_ARMOR_INNER, GuardArmorModel::createInnerArmorLayer);
         EntityRendererRegistry.register(GUARD_VILLAGER, GuardRenderer::new);
+        WorldRenderEvents.AFTER_TRANSLUCENT.register((context) -> {
+            VertexConsumerProvider.Immediate vcProvider =
+                    MinecraftClient.getInstance().getBufferBuilders().getEntityVertexConsumers();
+            GuardBeamRenderer.renderGuardBeams(
+                    context,
+                    context.matrixStack(),
+                    vcProvider,
+                    context.camera(),
+                    15728880,
+                    context.tickCounter().getTickDelta(true)
+            );
+        });
 
 
     }

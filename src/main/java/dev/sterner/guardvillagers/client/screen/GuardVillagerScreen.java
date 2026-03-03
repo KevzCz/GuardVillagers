@@ -1,31 +1,22 @@
     package dev.sterner.guardvillagers.client.screen;
-    
-    import com.mojang.blaze3d.systems.RenderSystem;
-    import dev.sterner.guardvillagers.GuardVillagers;
-    import dev.sterner.guardvillagers.GuardVillagersConfig;
-    import dev.sterner.guardvillagers.common.entity.GuardEntity;
-    import dev.sterner.guardvillagers.common.network.GuardFollowPacket;
-    import dev.sterner.guardvillagers.common.network.GuardPatrolPacket;
-    import dev.sterner.guardvillagers.common.screenhandler.GuardVillagerScreenHandler;
-    import net.fabricmc.api.EnvType;
-    import net.fabricmc.api.Environment;
-    import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
-    import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback;
-    import net.minecraft.client.gui.DrawContext;
-    import net.minecraft.client.gui.hud.InGameHud;
-    import net.minecraft.client.gui.screen.ButtonTextures;
-    import net.minecraft.client.gui.screen.ingame.HandledScreen;
-    import net.minecraft.client.gui.screen.ingame.InventoryScreen;
-    import net.minecraft.client.gui.widget.ButtonWidget;
-    import net.minecraft.client.gui.widget.TexturedButtonWidget;
-    import net.minecraft.client.render.GameRenderer;
-    import net.minecraft.entity.effect.StatusEffects;
-    import net.minecraft.entity.player.PlayerEntity;
-    import net.minecraft.entity.player.PlayerInventory;
-    import net.minecraft.screen.PlayerScreenHandler;
-    import net.minecraft.text.Text;
-    import net.minecraft.util.Identifier;
-    import net.minecraft.util.math.MathHelper;
+
+    import com.mojang.blaze3d.systems.*;
+    import dev.sterner.guardvillagers.*;
+    import dev.sterner.guardvillagers.common.entity.*;
+    import dev.sterner.guardvillagers.common.network.*;
+    import dev.sterner.guardvillagers.common.screenhandler.*;
+    import net.fabricmc.api.*;
+    import net.fabricmc.fabric.api.client.networking.v1.*;
+    import net.minecraft.client.gui.*;
+    import net.minecraft.client.gui.screen.*;
+    import net.minecraft.client.gui.screen.ingame.*;
+    import net.minecraft.client.gui.widget.*;
+    import net.minecraft.client.render.*;
+    import net.minecraft.entity.effect.*;
+    import net.minecraft.entity.player.*;
+    import net.minecraft.text.*;
+    import net.minecraft.util.*;
+    import net.minecraft.util.math.*;
     
     public class GuardVillagerScreen extends HandledScreen<GuardVillagerScreenHandler> {
         private static final Identifier GUARD_GUI_TEXTURES = GuardVillagers.id("textures/gui/inventory.png");
@@ -35,8 +26,6 @@
         private static final Identifier GUARD_NOT_FOLLOWING_ICON = GuardVillagers.id("textures/gui/not_following_icons.png");
         private static final Identifier PATROL_ICON = GuardVillagers.id( "textures/gui/patrollingui.png");
         private static final Identifier NOT_PATROLLING_ICON = GuardVillagers.id("textures/gui/notpatrollingui.png");
-    
-    
          */
         private static final ButtonTextures GUARD_FOLLOWING_ICONS = new ButtonTextures(GuardVillagers.id( "following/following"),GuardVillagers.id( "following/following_highlighted"));
         private static final ButtonTextures GUARD_NOT_FOLLOWING_ICONS = new ButtonTextures(GuardVillagers.id( "following/not_following"),GuardVillagers.id("following/not_following_highlighted"));
@@ -77,7 +66,7 @@
                 );
             }
         }
-    
+
         @Override
         protected void drawBackground(DrawContext ctx, float delta, int mouseX, int mouseY) {
             RenderSystem.setShader(GameRenderer::getPositionTexProgram);
@@ -85,7 +74,6 @@
             int i = (this.width - this.backgroundWidth) / 2;
             int j = (this.height - this.backgroundHeight) / 2;
             ctx.drawTexture(GUARD_GUI_TEXTURES, i, j, 0, 0, this.backgroundWidth, this.backgroundHeight);
-
             InventoryScreen.drawEntity(ctx, i + 51, j + 75, (i + 51), (j + 75 - 50), 30, 0.0625f, this.mousePosX, this.mousePosY, this.guardEntity);
         }
     
@@ -114,34 +102,6 @@
             super.drawForeground(ctx, x, y);
             int health = MathHelper.ceil(guardEntity.getHealth());
             int armor = guardEntity.getArmor();
-            {
-                String rawHoly = guardEntity.getHolySkill();
-                String pretty = "None";
-                if (!"none".equals(rawHoly)) {
-                    String s = rawHoly.contains(":") ? rawHoly.split(":")[1] : rawHoly;
-                    s = s.replace("_channeling", "").replace("_", " ").trim();
-                    pretty = java.util.Arrays.stream(s.split(" "))
-                            .map(w -> w.isEmpty() ? w : Character.toUpperCase(w.charAt(0)) + w.substring(1))
-                            .reduce((a, b) -> a + " " + b)
-                            .orElse(s);
-                }
-                ctx.drawText(this.textRenderer, Text.of("Holy Skill: " + pretty), 0, -20, 0xFFE8A3, false);
-            }
-            String rawSkill = guardEntity.getBowSkill();
-            if (!"none".equals(rawSkill)) {
-                String skillName = rawSkill.contains(":") ? rawSkill.split(":")[1] : rawSkill;
-                skillName = skillName.replace("_channeling", "")
-                        .replace("_", " ")
-                        .trim();
-
-                skillName = java.util.Arrays.stream(skillName.split(" "))
-                        .map(word -> word.isEmpty() ? word : Character.toUpperCase(word.charAt(0)) + word.substring(1))
-                        .reduce((a, b) -> a + " " + b)
-                        .orElse(skillName);
-
-                ctx.drawText(this.textRenderer, Text.of("Bow Skill: " + skillName), 0, -10, 0xFFFFFF, false);
-            }
-
     
             boolean statusU = guardEntity.hasStatusEffect(StatusEffects.POISON);
             boolean statusW = guardEntity.hasStatusEffect(StatusEffects.WITHER);
@@ -184,9 +144,9 @@
     
     
         class GuardGuiButton extends TexturedButtonWidget {
-            private ButtonTextures texture;
-            private ButtonTextures newTexture;
-            private boolean isFollowButton;
+            private final ButtonTextures texture;
+            private final ButtonTextures newTexture;
+            private final boolean isFollowButton;
     
             public GuardGuiButton(int xIn, int yIn, int widthIn, int heightIn, ButtonTextures resourceLocationIn, ButtonTextures newTexture, boolean isFollowButton, ButtonWidget.PressAction  onPressIn) {
                 super(xIn, yIn, widthIn, heightIn, resourceLocationIn, onPressIn);
@@ -210,7 +170,7 @@
         }
     
         @Environment(value= EnvType.CLIENT)
-        static enum HeartType {
+        enum HeartType {
             CONTAINER(Identifier.ofVanilla("hud/heart/container"), Identifier.ofVanilla("hud/heart/container")),
             NORMAL(Identifier.ofVanilla("hud/heart/full"), Identifier.ofVanilla("hud/heart/half")),
             POISONED(Identifier.ofVanilla("hud/heart/poisoned_full"), Identifier.ofVanilla("hud/heart/poisoned_half")),
@@ -220,7 +180,7 @@
             private final Identifier fullTexture;
             private final Identifier halfTexture;
     
-            private HeartType(Identifier fullTexture, Identifier halfTexture) {
+            HeartType(Identifier fullTexture, Identifier halfTexture) {
                 this.fullTexture = fullTexture;
                 this.halfTexture = halfTexture;
             }

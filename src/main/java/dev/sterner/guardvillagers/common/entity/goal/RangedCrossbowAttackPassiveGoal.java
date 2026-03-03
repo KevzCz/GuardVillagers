@@ -2,91 +2,97 @@ package dev.sterner.guardvillagers.common.entity.goal;
 
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.GuardVillagersConfig;
-import dev.sterner.guardvillagers.common.ai.CombatMovementHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardSpellManager;
+import dev.sterner.guardvillagers.common.entity.goal.spell.BaseRangedSpellGoal;
+import dev.sterner.guardvillagers.common.entity.goal.spell.ConditionalSpellGoal;
+import dev.sterner.guardvillagers.common.entity.goal.spell.SpellContext;
+import dev.sterner.guardvillagers.common.entity.goal.spell.SpellDelivery;
 import dev.sterner.guardvillagers.mixin.accessor.CrossbowItemAccessor;
-import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
 import net.minecraft.entity.ai.RangedAttackMob;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.mob.PathAwareEntity;
-import net.minecraft.entity.projectile.PersistentProjectileEntity;
-import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.TimeHelper;
 import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.math.intprovider.UniformIntProvider;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.api.spell.registry.SpellRegistry;
-import net.spell_engine.entity.SpellProjectile;
-import net.spell_engine.internals.SpellHelper;
-import net.spell_power.api.SpellPower;
-import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Optional;
 
-public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedAttackMob & CrossbowUser> extends Goal {
-    public static final UniformIntProvider PATHFINDING_DELAY_RANGE = TimeHelper.betweenSeconds(1, 2);
+public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedAttackMob & CrossbowUser>
+        extends BaseRangedSpellGoal {
+
     private final T mob;
+    private final ConditionalSpellGoal conditionalSpells;
     private int chargingTime = 0;
-    private final double speedModifier;
-    private final float attackRadiusSqr;
-    protected double wantedX;
-    protected double wantedY;
-    protected double wantedZ;
+
+    private double wantedX;
+    private double wantedY;
+    private double wantedZ;
+
     private CrossbowState crossbowState = CrossbowState.UNCHARGED;
-    private int seeTime;
-    private int attackDelay;
-    private int updatePathDelay;
-    private final Map<Identifier, Integer> spellCooldowns = new HashMap<>();
-    private Identifier currentSpellId;
-    private RegistryEntry<Spell> cachedSpellEntry;
+    private SpellCastState spellCastState = SpellCastState.NONE;
+
+    private enum CrossbowState {
+        UNCHARGED,
+        CHARGING,
+        CHARGED,
+        READY_TO_ATTACK,
+        FIND_NEW_POSITION
+    }
+
+    private enum SpellCastState {
+        NONE,
+        WINDING_UP,
+        CHANNELING
+    }
 
     public RangedCrossbowAttackPassiveGoal(T mob, double speedModifier, float attackRadius) {
+        super((GuardEntity) mob, speedModifier, attackRadius);
         this.mob = mob;
-        this.speedModifier = speedModifier;
-        this.attackRadiusSqr = attackRadius * attackRadius;
+        this.conditionalSpells = new ConditionalSpellGoal((GuardEntity) mob);
         this.setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.LOOK));
     }
 
     @Override
     public boolean canStart() {
-        return this.isValidTarget() && this.isHoldingCrossbow();
-    }
-
-    private boolean isHoldingCrossbow() {
-        return this.mob.isHolding(is -> is.getItem() instanceof CrossbowItem);
+        return isValidTarget() && isHoldingCrossbow();
     }
 
     @Override
     public boolean shouldContinue() {
-        return this.isValidTarget() && (this.canStart() || !this.mob.getNavigation().isIdle()) && this.isHoldingCrossbow();
+        return isValidTarget() && (canStart() || !mob.getNavigation().isIdle()) && isHoldingCrossbow();
     }
 
-    private boolean isValidTarget() {
-        return this.mob.getTarget() != null && this.mob.getTarget().isAlive();
+    @Override
+    public void start() {
+        super.start();
+        crossbowState = CrossbowState.UNCHARGED;
+        chargingTime = 0;
     }
 
     @Override
     public void stop() {
         super.stop();
-        this.mob.setAttacking(false);
-        this.mob.setTarget(null);
-        this.seeTime = 0;
-        if (this.mob.isUsingItem()) {
-            this.mob.stopUsingItem();
-            this.mob.setCharging(false);
+
+        if (mob.isUsingItem()) {
+            mob.stopUsingItem();
+            mob.setCharging(false);
         }
-        this.mob.setPose(EntityPose.STANDING);
+        mob.setPose(EntityPose.STANDING);
+
+        resetSpellState();
+        crossbowState = CrossbowState.UNCHARGED;
+        chargingTime = 0;
     }
 
     @Override
@@ -95,261 +101,361 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
     }
 
     @Override
-    public void start() {
-        this.mob.setAttacking(true);
-    }
-
-    @Override
     public void tick() {
-        LivingEntity target = this.mob.getTarget();
+        LivingEntity target = mob.getTarget();
+        if (target == null || !target.isAlive()) return;
 
-        if (target != null) {
-            boolean canSee = this.mob.getVisibilityCache().canSee(target);
-            boolean hasSeenRecently = this.seeTime > 0;
+        tickCooldowns();
 
-            var mv = CombatMovementHelper.applyRangedCombatMovement(
-                    this.mob,
-                    target,
-                    canSee,
-                    this.seeTime,
-                    this.updatePathDelay,
-                    this.attackDelay,
-                    this.mob.isUsingItem(),
-                    this.canRun(),
-                    this.speedModifier,
-                    (float)Math.sqrt(this.attackRadiusSqr)
+        boolean canSee = mob.getVisibilityCache().canSee(target);
+        boolean inAimPhase = mob.isUsingItem() || spellCastState != SpellCastState.NONE;
+        boolean canRun = crossbowState == CrossbowState.UNCHARGED && spellCastState == SpellCastState.NONE;
+
+        updateCombatMovement(target, inAimPhase, canRun);
+
+        if (spellCastState != SpellCastState.NONE) {
+            handleSpellCasting(target);
+            return;
+        }
+
+        if (friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire) {
+            crossbowState = CrossbowState.FIND_NEW_POSITION;
+        }
+
+        handleCrossbowState(target, canSee);
+    }
+
+    private void handleCrossbowState(LivingEntity target, boolean canSee) {
+        switch (crossbowState) {
+            case FIND_NEW_POSITION -> handleFindNewPosition();
+            case UNCHARGED -> handleUncharged();
+            case CHARGING -> handleCharging();
+            case CHARGED -> handleCharged();
+            case READY_TO_ATTACK -> handleReadyToAttack(target, canSee);
+        }
+    }
+
+    private void handleFindNewPosition() {
+        mob.stopUsingItem();
+        mob.setCharging(false);
+
+        if (findNewPosition()) {
+            mob.getNavigation().startMovingTo(wantedX, wantedY, wantedZ, mob.isSneaking() ? 0.5D : 1.2D);
+        }
+
+        crossbowState = CrossbowState.UNCHARGED;
+    }
+
+    private void handleUncharged() {
+        if (seeTime > 0) {
+            mob.setCurrentHand(getCrossbowHand());
+            mob.setCharging(true);
+            crossbowState = CrossbowState.CHARGING;
+        }
+    }
+
+    private void handleCharging() {
+        chargingTime++;
+        int useTime = mob.getItemUseTime();
+        ItemStack itemStack = mob.getActiveItem();
+
+        if (useTime >= 25 || CrossbowItem.isCharged(itemStack) || chargingTime > 60) {
+            mob.stopUsingItem();
+            mob.setCharging(false);
+            attackDelay = 10 + mob.getRandom().nextInt(5);
+            crossbowState = CrossbowState.CHARGED;
+            chargingTime = 0;
+        }
+    }
+
+    private void handleCharged() {
+        if (--attackDelay <= 0) {
+            crossbowState = CrossbowState.READY_TO_ATTACK;
+        }
+    }
+
+    private void handleReadyToAttack(LivingEntity target, boolean canSee) {
+        if (!canSee) return;
+
+        if (trySpellCast(target)) return;
+
+        performCrossbowShot(target);
+    }
+
+    private boolean trySpellCast(LivingEntity target) {
+        Identifier stashSpellId = getStashEffectSpellId();
+        if (stashSpellId != null && !isSpellOnCooldown(stashSpellId)) {
+            return castSpellFromId(stashSpellId, target);
+        }
+
+        Identifier supportSpellId = getSupportSpellId();
+        if (supportSpellId != null && !isSpellOnCooldown(supportSpellId)) {
+            return castSpellFromId(supportSpellId, target);
+        }
+
+        float spellChance = getScaledSpellChance();
+        if (mob.getRandom().nextFloat() >= spellChance) return false;
+
+        Identifier spellId = getCrossbowSpellId();
+        if (spellId == null || isSpellOnCooldown(spellId)) return false;
+
+        return castSpellFromId(spellId, target);
+    }
+
+    private Identifier getStashEffectSpellId() {
+        if (!(mob instanceof GuardEntity guard)) return null;
+
+        Optional<GuardSpellManager.CategorizedSpell> bestSpell = guard.getSpellManager().getBestSpell(
+                GuardSpellManager.SpellCategory.RANGED_BOW,
+                spell -> {
+                    Spell s = spell.entry().value();
+                    return s.deliver != null
+                            && s.deliver.type == Spell.Delivery.Type.STASH_EFFECT
+                            && !isSpellOnCooldown(spell.spellId());
+                }
+        );
+
+        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
+    }
+
+    private float getScaledSpellChance() {
+        if (!(mob instanceof GuardEntity guard)) return 0.15f;
+
+        double rangedDamage = 0.0;
+
+        Optional<RegistryEntry.Reference<net.minecraft.entity.attribute.EntityAttribute>> attrOpt =
+                Registries.ATTRIBUTE.getEntry(Identifier.of("ranged_weapon", "damage"));
+
+        if (attrOpt.isPresent()) {
+            RegistryEntry<net.minecraft.entity.attribute.EntityAttribute> attr = attrOpt.get();
+            if (guard.getAttributes().hasAttribute(attr)) {
+                rangedDamage = guard.getAttributeValue(attr);
+            }
+        }
+
+        double minChance = 0.05;
+        double maxChance = 0.5;
+        double maxDamage = 50.0;
+
+        double chance = minChance + (Math.min(rangedDamage, maxDamage) / maxDamage) * (maxChance - minChance);
+        return (float) chance;
+    }
+
+    private boolean castSpellFromId(Identifier spellId, LivingEntity target) {
+        return getSpellEntry(spellId).map(entry -> {
+            Spell spell = entry.value();
+            currentSpellId = spellId;
+            cachedSpellEntry = entry;
+
+            windUpTicks = getWindUpTicks(spell);
+            isChanneled = isSpellChanneled(spell);
+            channelTicksLeft = getChannelDuration(spell);
+            castingDelayTicks = 0;
+
+            if (windUpTicks > 0) {
+                spellCastState = SpellCastState.WINDING_UP;
+                guard.setCastingSpell(true);
+            } else if (isChanneled && channelTicksLeft > 0) {
+                spellCastState = SpellCastState.CHANNELING;
+                guard.setCastingSpell(true);
+            } else {
+                castSpell(target, spell, entry);
+                spellCooldowns.put(spellId, getCooldownTicks(spell));
+                resetSpellState();
+                crossbowState = CrossbowState.UNCHARGED;
+            }
+            return true;
+        }).orElse(false);
+    }
+
+    private void handleSpellCasting(LivingEntity target) {
+        if (cachedSpellEntry == null) {
+            resetSpellState();
+            return;
+        }
+
+        Spell spell = cachedSpellEntry.value();
+
+        switch (spellCastState) {
+            case WINDING_UP -> {
+                if (windUpTicks % 2 == 0) {
+                    spawnCastingParticles(spell);
+                }
+
+                if (--windUpTicks <= 0) {
+                    if (isChanneled && channelTicksLeft > 0) {
+                        spellCastState = SpellCastState.CHANNELING;
+                    } else {
+                        castSpell(target, spell, cachedSpellEntry);
+                        spellCooldowns.put(currentSpellId, getCooldownTicks(spell));
+                        resetSpellState();
+                        crossbowState = CrossbowState.UNCHARGED;
+                    }
+                }
+            }
+
+            case CHANNELING -> {
+                if (channelTicksLeft % 2 == 0) {
+                    spawnCastingParticles(spell);
+                }
+
+                if (channelTicksLeft > 0) {
+                    if (channelTicksLeft == getChannelDuration(spell) || --castingDelayTicks <= 0) {
+                        castSpell(target, spell, cachedSpellEntry);
+                        castingDelayTicks = getChannelFireInterval(spell);
+                    }
+                    channelTicksLeft--;
+                } else {
+                    spellCooldowns.put(currentSpellId, getCooldownTicks(spell));
+                    resetSpellState();
+                    crossbowState = CrossbowState.UNCHARGED;
+                }
+            }
+        }
+    }
+
+    private void castSpell(LivingEntity target, Spell spell, RegistryEntry<Spell> entry) {
+        SpellContext context = createSpellContext(currentSpellId, entry, target).build();
+
+        if (spell.deliver == null) {
+            SpellDelivery.castDirect(context);
+            clearCrossbowCharge();
+            return;
+        }
+
+        switch (spell.deliver.type) {
+            case SHOOT_ARROW, PROJECTILE -> SpellDelivery.castProjectile(context,
+                    isChanneled ? (getChannelDuration(spell) - channelTicksLeft) : 0);
+            case METEOR -> SpellDelivery.castMeteor(context);
+            case CLOUD -> SpellDelivery.castCloud(context);
+            case DIRECT -> SpellDelivery.castDirect(context);
+            case STASH_EFFECT -> SpellDelivery.castStashEffect(context);
+        }
+
+        clearCrossbowCharge();
+    }
+
+    private void performCrossbowShot(LivingEntity target) {
+        ItemStack crossbow = mob.getStackInHand(getCrossbowHand());
+        Hand hand = getCrossbowHand();
+        CrossbowItem crossbowItem = (CrossbowItem) crossbow.getItem();
+
+        if (!CrossbowItem.isCharged(crossbow)) {
+            ItemStack ammo = mob.getProjectileType(crossbow);
+            if (ammo.isEmpty()) ammo = new ItemStack(Items.ARROW);
+
+            crossbow.set(
+                    net.minecraft.component.DataComponentTypes.CHARGED_PROJECTILES,
+                    net.minecraft.component.type.ChargedProjectilesComponent.of(List.of(ammo.copyWithCount(1)))
             );
-            this.seeTime = mv.seeTime();
-            this.updatePathDelay = mv.updatePathDelay();
-
-            spellCooldowns.replaceAll((id, t) -> Math.max(t - 1, 0));
-
-            if (this.friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire) {
-                this.crossbowState = CrossbowState.FIND_NEW_POSITION;
-            }
-
-            switch (this.crossbowState) {
-                case FIND_NEW_POSITION -> {
-                    this.mob.stopUsingItem();
-                    this.mob.setCharging(false);
-                    if (this.findPosition())
-                        this.mob.getNavigation().startMovingTo(this.wantedX, this.wantedY, this.wantedZ, this.mob.isSneaking() ? 0.5F : 1.2D);
-                    this.crossbowState = CrossbowState.UNCHARGED;
-                }
-
-                case UNCHARGED -> {
-                    if (hasSeenRecently) {
-                        this.mob.setCurrentHand(GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem));
-                        this.mob.setCharging(true);
-                        this.crossbowState = CrossbowState.CHARGING;
-                    }
-                }
-
-                case CHARGING -> {
-                    chargingTime++;
-                    int requiredPullTime = 25;
-                    int useTime = this.mob.getItemUseTime();
-                    ItemStack itemStack = this.mob.getActiveItem();
-
-                    if (useTime >= requiredPullTime || CrossbowItem.isCharged(itemStack) || chargingTime > 60) {
-                        this.mob.stopUsingItem();
-                        this.mob.setCharging(false);
-                        this.attackDelay = 10 + this.mob.getRandom().nextInt(5);
-                        this.crossbowState = CrossbowState.CHARGED;
-                        chargingTime = 0;
-                    }
-                }
-
-
-                case CHARGED -> {
-                    if (--this.attackDelay <= 0) {
-                        this.crossbowState = CrossbowState.READY_TO_ATTACK;
-                    }
-                }
-
-                case READY_TO_ATTACK -> {
-                    if (!canSee) return;
-
-                    Identifier spellId = getCrossbowSpellId();
-                    if (spellId != null && !isSpellOnCooldown(spellId) && this.mob.getRandom().nextFloat() < 0.15f) {
-                        Optional<RegistryEntry.Reference<Spell>> optSpell = SpellRegistry.from(this.mob.getWorld()).getEntry(spellId);
-                        if (optSpell.isPresent()) {
-                            cachedSpellEntry = optSpell.get();
-                            Spell spell = cachedSpellEntry.value();
-
-                            castCrossbowSpell(target, spell, cachedSpellEntry);
-                            spellCooldowns.put(spellId, 60);
-                            this.crossbowState = CrossbowState.UNCHARGED;
-                            return;
-                        }
-                    }
-
-                    ItemStack crossbowStack = this.mob.getStackInHand(GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem));
-                    Hand hand = GuardVillagers.getHandWith(this.mob, item -> item instanceof CrossbowItem);
-                    CrossbowItem crossbowItem = (CrossbowItem) crossbowStack.getItem();
-
-                    if (!CrossbowItem.isCharged(crossbowStack)) {
-                        ItemStack ammo = this.mob.getProjectileType(crossbowStack);
-                        if (ammo.isEmpty()) ammo = new ItemStack(Items.ARROW);
-
-                        crossbowStack.set(
-                                net.minecraft.component.DataComponentTypes.CHARGED_PROJECTILES,
-                                net.minecraft.component.type.ChargedProjectilesComponent.of(List.of(ammo.copyWithCount(1)))
-                        );
-                    }
-
-                    ((CrossbowItemAccessor) crossbowItem).callShootAll(
-                            this.mob.getWorld(), this.mob, hand, crossbowStack,
-                            2.0F, 1.0F, target
-                    );
-
-                    ((CrossbowUser) this.mob).setCharging(false);
-                    this.crossbowState = CrossbowState.UNCHARGED;
-                }
-            }
         }
+
+        ((CrossbowItemAccessor) crossbowItem).callShootAll(
+                mob.getWorld(), mob, hand, crossbow, 2.0F, 1.0F, target
+        );
+
+        mob.setCharging(false);
+        crossbowState = CrossbowState.UNCHARGED;
     }
 
-    private Identifier getCrossbowSpellId() {
-        if (mob instanceof GuardEntity guard) {
-            String raw = guard.getBowSkill();
-            return raw != null && !raw.equals("none") ? Identifier.tryParse(raw) : null;
-        }
-        return null;
-    }
-
-    private boolean isSpellOnCooldown(Identifier spellId) {
-        return spellCooldowns.getOrDefault(spellId, 0) > 0;
-    }
-
-    private void castCrossbowSpell(LivingEntity target, Spell spell, RegistryEntry<Spell> spellEntry) {
-        SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
-                .power(SpellPower.getSpellPower(spell.school, mob))
-                .position(mob.getEyePos())
-                .target(SpellHelper.focusMode(spell))
-                .distance(1.0f);
-
-        switch (String.valueOf(spell.deliver.type).toUpperCase()) {
-            case "PROJECTILE" -> {
-                Spell.ProjectileData.Perks perks = spell.deliver.projectile.projectile.perks != null
-                        ? spell.deliver.projectile.projectile.perks.copy()
-                        : new Spell.ProjectileData.Perks();
-
-                Vec3d launchPos = SpellHelper.launchPoint(mob);
-                Vec3d direction = target.getEyePos().subtract(launchPos).normalize();
-                float velocity = spell.deliver.projectile.launch_properties.velocity;
-                float divergence = spell.deliver.projectile.projectile.divergence;
-
-                SpellProjectile projectile = new SpellProjectile(
-                        mob.getWorld(), mob, launchPos.x, launchPos.y, launchPos.z,
-                        SpellProjectile.Behaviour.FLY, spellEntry, context, perks
-                );
-
-                projectile.setVelocity(direction.x, direction.y, direction.z, velocity, divergence);
-                projectile.range = spell.range;
-
-                mob.getWorld().spawnEntity(projectile);
-                playSpellSound(spell);
-            }
-
-            case "METEOR" -> {
-                SpellHelper.fallProjectile(mob.getWorld(), mob, target, target.getPos(), spellEntry, context);
-                playSpellSound(spell);
-            }
-
-            case "DIRECT" -> {
-                SpellHelper.performImpacts(mob.getWorld(), mob, target, mob, spellEntry, spell.impacts, context);
-                playSpellSound(spell);
-            }
-        }
-        ItemStack crossbow = mob.getStackInHand(GuardVillagers.getHandWith(mob, item -> item instanceof CrossbowItem));
+    private void clearCrossbowCharge() {
+        ItemStack crossbow = mob.getStackInHand(getCrossbowHand());
         if (!crossbow.isEmpty()) {
             crossbow.remove(net.minecraft.component.DataComponentTypes.CHARGED_PROJECTILES);
         }
     }
-    private void shootCrossbowProjectileWithScaling(LivingEntity target, ItemStack crossbowStack, Hand hand) {
-        ItemStack arrowStack = mob.getProjectileType(crossbowStack);
-        if (arrowStack.isEmpty()) arrowStack = new ItemStack(Items.ARROW);
 
-        PersistentProjectileEntity projectile = ProjectileUtil.createArrowProjectile(mob, arrowStack, 1.0F, crossbowStack);
+    private Identifier getSupportSpellId() {
+        if (!(mob instanceof GuardEntity guard)) return null;
 
-        final double[] rangedDamage = {0.0};
-        Identifier attrId = Identifier.of("ranged_weapon", "damage");
-        Registries.ATTRIBUTE.getEntry(attrId).ifPresent(attr -> {
-            if (mob.getAttributes().hasAttribute(attr)) {
-                rangedDamage[0] = mob.getAttributeValue(attr);
-            }
-        });
+        Optional<GuardSpellManager.CategorizedSpell> bestSpell = guard.getSpellManager().getBestSpell(
+                GuardSpellManager.SpellCategory.SUPPORT,
+                spell -> {
+                    Spell s = spell.entry().value();
+                    boolean isNotStashEffect = s.deliver == null || s.deliver.type != Spell.Delivery.Type.STASH_EFFECT;
+                    return isNotStashEffect && conditionalSpells.canCastSpell(spell.spellId()) && !isSpellOnCooldown(spell.spellId());
+                }
+        );
 
-        projectile.setDamage(projectile.getDamage() + rangedDamage[0] / 2);
-
-        Vec3d targetPos = target.getEyePos();
-        double dx = targetPos.x - mob.getX();
-        double dy = targetPos.y - projectile.getY();
-        double dz = targetPos.z - mob.getZ();
-        double dist = Math.sqrt(dx * dx + dz * dz);
-        projectile.setVelocity(dx, dy + dist * 0.2D, dz, 2.0F, 1.0F);
-
-        mob.getWorld().spawnEntity(projectile);
-
-        crossbowStack.remove(DataComponentTypes.CHARGED_PROJECTILES);
-
-        mob.playSound(SoundEvents.ITEM_CROSSBOW_SHOOT, 1.0F, 1.0F);
+        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
     }
 
-    private void playSpellSound(Spell spell) {
-        if (spell.release != null && spell.release.sound != null) {
-            Identifier soundId = Identifier.tryParse(spell.release.sound.id());
-            if (soundId != null) {
-                SoundEvent sound = Registries.SOUND_EVENT.get(soundId);
-                mob.getWorld().playSound(null, mob.getBlockPos(), sound, net.minecraft.sound.SoundCategory.HOSTILE, 1.0F, 1.0F);
-            }
+    private Identifier getCrossbowSpellId() {
+        if (!(mob instanceof GuardEntity guard)) return null;
+
+        Optional<GuardSpellManager.CategorizedSpell> bestSpell = guard.getSpellManager().getBestSpell(
+                GuardSpellManager.SpellCategory.RANGED_BOW,
+                spell -> {
+                    Spell s = spell.entry().value();
+                    boolean isNotStashEffect = s.deliver == null || s.deliver.type != Spell.Delivery.Type.STASH_EFFECT;
+                    return isNotStashEffect
+                            && !isSpellOnCooldown(spell.spellId())
+                            && isArchetypeCompatibleWithCrossbow(spell);
+                }
+        );
+
+        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
+    }
+
+    private boolean isArchetypeCompatibleWithCrossbow(GuardSpellManager.CategorizedSpell spell) {
+        Spell s = spell.entry().value();
+
+        if (s.school == null || s.school.archetype == null) {
+            return true;
         }
+
+        return s.school.archetype == net.spell_power.api.SpellSchool.Archetype.ARCHERY;
+    }
+
+    public void resetSpellState() {
+        super.resetSpellState();
+        spellCastState = SpellCastState.NONE;
+        guard.setCastingSpell(false);
+    }
+
+    private boolean isHoldingCrossbow() {
+        return mob.isHolding(is -> is.getItem() instanceof CrossbowItem);
+    }
+
+    private Hand getCrossbowHand() {
+        return GuardVillagers.getHandWith(mob, item -> item instanceof CrossbowItem);
     }
 
     private boolean friendlyInLineOfSight() {
-        List<Entity> list = this.mob.getWorld().getOtherEntities(this.mob, this.mob.getBoundingBox().expand(5.0D));
-        for (Entity guard : list) {
-            if (guard != this.mob.getTarget()) {
-                boolean isVillager = ((GuardEntity) this.mob).getOwner() == guard || guard.getType() == EntityType.VILLAGER || guard.getType() == GuardVillagers.GUARD_VILLAGER || guard.getType() == EntityType.IRON_GOLEM;
-                if (isVillager) {
-                    Vec3d direction = this.mob.getRotationVector();
-                    Vec3d toEntity = guard.getPos().relativize(this.mob.getPos()).normalize();
-                    if (toEntity.dotProduct(direction) < 1.0D && this.mob.canSee(guard) && guard.distanceTo(this.mob) <= 4.0D)
-                        return true;
-                }
+        if (!(mob instanceof GuardEntity guard)) return false;
+
+        List<Entity> nearby = mob.getWorld().getOtherEntities(mob, mob.getBoundingBox().expand(5.0D));
+
+        for (Entity entity : nearby) {
+            if (entity == mob.getTarget()) continue;
+
+            boolean isFriendly = entity == guard.getOwner()
+                    || entity.getType() == EntityType.VILLAGER
+                    || entity.getType() == GuardVillagers.GUARD_VILLAGER
+                    || entity.getType() == EntityType.IRON_GOLEM;
+
+            if (isFriendly && mob.canSee(entity) && mob.distanceTo(entity) <= 4.0D) {
+                Vec3d facing = mob.getRotationVector();
+                Vec3d toEntity = entity.getPos().subtract(mob.getPos()).normalize();
+                if (facing.dotProduct(toEntity) > 0.9D) return true;
             }
         }
+
         return false;
     }
 
-    public boolean findPosition() {
-        Vec3d pos = this.getPosition();
-        if (pos == null) return false;
+    private boolean findNewPosition() {
+        Vec3d pos = isValidTarget()
+                ? NoPenaltyTargeting.findFrom(mob, 16, 7, mob.getTarget().getPos())
+                : NoPenaltyTargeting.find(mob, 16, 7);
 
-        this.wantedX = pos.x;
-        this.wantedY = pos.y;
-        this.wantedZ = pos.z;
-        return true;
-    }
+        if (pos != null) {
+            wantedX = pos.x;
+            wantedY = pos.y;
+            wantedZ = pos.z;
+            return true;
+        }
 
-    @Nullable
-    protected Vec3d getPosition() {
-        if (this.isValidTarget())
-            return NoPenaltyTargeting.findFrom(this.mob, 16, 7, this.mob.getTarget().getPos());
-        else
-            return NoPenaltyTargeting.find(this.mob, 16, 7);
-    }
-
-    private boolean canRun() {
-        return this.crossbowState == CrossbowState.UNCHARGED;
-    }
-
-    public enum CrossbowState {
-        UNCHARGED,
-        CHARGING,
-        CHARGED,
-        READY_TO_ATTACK,
-        FIND_NEW_POSITION
+        return false;
     }
 }

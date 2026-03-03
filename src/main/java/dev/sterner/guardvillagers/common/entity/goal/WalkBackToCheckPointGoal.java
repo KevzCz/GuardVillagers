@@ -1,11 +1,11 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
-import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.item.RangedWeaponItem;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
+import dev.sterner.guardvillagers.common.entity.GuardEntity;
 
 public class WalkBackToCheckPointGoal extends Goal {
     private final GuardEntity guard;

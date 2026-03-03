@@ -46,7 +46,6 @@ public final class CombatMovementHelper {
                 return new MovementResult(s, updatePathDelay);
             }
         }
-        /* ----- /HOLY ZONE OVERRIDE ----- */
 
 
         int s = seeTime;
@@ -106,7 +105,6 @@ public final class CombatMovementHelper {
             double speedModifier,
             float attackRadius
     ) {
-        // apply override only for GuardEntity
         if (mob instanceof GuardEntity guard) {
             var zone = HolyZoneHelper.findNearby(guard, 32.0);
             if (zone != null) {
@@ -223,6 +221,97 @@ public final class CombatMovementHelper {
         return new BowMovementResult(s, combatTicks, movingToLeft, backward);
     }
 
+    public static MeleeMovementResult applyMeleeCombatMovement(
+            GuardEntity guard,
+            LivingEntity target,
+            boolean canSee,
+            int seeTime,
+            int updatePathDelay,
+            int strafeCooldown,
+            boolean strafeLeft,
+            boolean inCastPhase,
+            float meleeRange
+    ) {
+        var zone = HolyZoneHelper.findNearby(guard, 32.0);
+        if (zone != null) {
+            float r = HolyZoneHelper.radiusOf(zone, 5.0F);
+            if (!HolyZoneHelper.inside(guard, zone, r)) {
+                HolyZoneHelper.steerTowardsIfOutside(guard, zone, r, 1.2D);
+                guard.lookAtEntity(target, 30.0F, 30.0F);
+                guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+                HolyZoneHelper.debugLog(guard, "applyMeleeCombatMovement: RETURN to zone");
+                return new MeleeMovementResult(seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+            } else {
+                HolyZoneHelper.stopInside(guard, zone, r);
+                HolyZoneHelper.softLeashInside(guard, zone, r);
+                guard.lookAtEntity(target, 30.0F, 30.0F);
+                guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+                HolyZoneHelper.debugLog(guard, "applyMeleeCombatMovement: HOLD in zone");
+                return new MeleeMovementResult(seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+            }
+        }
+
+        int s = seeTime;
+        boolean hadSight = s > 0;
+        if (canSee != hadSight) s = 0;
+        if (canSee) ++s; else --s;
+
+        double distSq = guard.squaredDistanceTo(target);
+        guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+
+        int upd = updatePathDelay;
+        int strafeCd = strafeCooldown;
+        boolean strafeDir = strafeLeft;
+
+        if (inCastPhase) {
+            guard.getNavigation().stop();
+            if (strafeCd > 0) {
+                strafeCd--;
+            } else if (guard.getRandom().nextInt(20) == 0) {
+                strafeDir = !strafeDir;
+                strafeCd = 10;
+            }
+
+            if (strafeCd > 0) {
+                guard.getMoveControl().strafeTo(0.0F, strafeDir ? 0.3F : -0.3F);
+            }
+
+            return new MeleeMovementResult(s, upd, strafeCd, strafeDir);
+        }
+
+        boolean needsToApproach = distSq > meleeRange * meleeRange || s < 5;
+
+        if (needsToApproach) {
+            --upd;
+            if (upd <= 0) {
+                guard.getNavigation().startMovingTo(target, 1.2D);
+                upd = 4 + guard.getRandom().nextInt(7);
+            }
+        } else {
+            upd = 0;
+            guard.getNavigation().stop();
+
+            if (--strafeCd <= 0) {
+                if (guard.getRandom().nextInt(10) == 0) {
+                    strafeDir = !strafeDir;
+                }
+                strafeCd = 20 + guard.getRandom().nextInt(20);
+            }
+
+            float forward = 0.0F;
+            if (distSq < 2.0D) {
+                forward = -0.3F;
+            } else if (distSq > 3.5D * 3.5D) {
+                forward = 0.3F;
+            }
+
+            guard.getMoveControl().strafeTo(forward, strafeDir ? 0.4F : -0.4F);
+        }
+
+        return new MeleeMovementResult(s, upd, strafeCd, strafeDir);
+    }
+
     public record MovementResult(int seeTime, int updatePathDelay) {}
     public record BowMovementResult(int targetSeeingTicker, int combatTicks, boolean movingToLeft, boolean backward) {}
+    public record MeleeMovementResult(int seeTime, int updatePathDelay, int strafeCooldown, boolean strafeLeft) {}
 }

@@ -1,20 +1,19 @@
 package dev.sterner.guardvillagers.common.entity;
 
-import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
-import net.minecraft.entity.EquipmentSlot;
-import net.minecraft.item.ItemStack;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.registry.tag.TagKey;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Identifier;
-import net.spell_engine.api.spell.Spell;
-import net.spell_engine.api.tags.SpellEngineItemTags;
-import net.spell_engine.api.spell.container.SpellContainer;
-import net.spell_engine.api.spell.container.SpellContainerHelper;
-import net.spell_engine.api.spell.registry.SpellRegistry;
-import net.spell_engine.item.ScrollItem;
-import net.spell_power.api.SpellPower;
-import net.spell_power.api.SpellSchool;
+import dev.sterner.guardvillagers.common.debug.*;
+import net.minecraft.component.type.*;
+import net.minecraft.entity.*;
+import net.minecraft.item.*;
+import net.minecraft.registry.entry.*;
+import net.minecraft.registry.tag.*;
+import net.minecraft.util.*;
+import net.spell_engine.api.item.set.*;
+import net.spell_engine.api.spell.*;
+import net.spell_engine.api.spell.container.*;
+import net.spell_engine.api.spell.registry.*;
+import net.spell_engine.api.tags.*;
+import net.spell_engine.item.*;
+import net.spell_power.api.*;
 
 import java.util.*;
 
@@ -33,6 +32,7 @@ public class GuardSpellManager {
     private ItemStack lastFeet = ItemStack.EMPTY;
 
     private final List<RegistryEntry<Spell>> modifierSpells = new ArrayList<>();
+    private final List<AttributeModifiersComponent> activeSetAttributes = new ArrayList<>();
 
     public enum SpellCategory {
         MELEE,
@@ -57,7 +57,8 @@ public class GuardSpellManager {
         MAINHAND,
         OFFHAND,
         SPELL_SLOT,
-        ARMOR
+        ARMOR,
+        EQUIPMENT_SET
     }
 
     public GuardSpellManager(GuardEntity guard) {
@@ -89,6 +90,8 @@ public class GuardSpellManager {
         activeSpells.clear();
         passiveSpells.clear();
         modifierSpells.clear();
+        removeSetAttributeModifiers();
+        activeSetAttributes.clear();
 
         if (!mainhand.isEmpty()) {
             categorizeSpellsFromItem(mainhand, ItemSource.MAINHAND);
@@ -107,6 +110,9 @@ public class GuardSpellManager {
                 categorizeSpellsFromItem(armorStack, ItemSource.ARMOR);
             }
         }
+
+        collectEquipmentSetSpells(mainhand, offhand, spellSlot, head, chest, legs, feet);
+        applySetAttributeModifiers();
 
         lastMainhand = mainhand.copy();
         lastOffhand = offhand.copy();
@@ -144,11 +150,14 @@ public class GuardSpellManager {
 
     private void categorizeSpellsFromItem(ItemStack stack, ItemSource source) {
         SpellContainer container = SpellContainerHelper.containerFromItemStack(stack);
+        categorizeSpellsFromContainer(container, source, stack.getItem().getName().getString());
+    }
 
+    private void categorizeSpellsFromContainer(SpellContainer container, ItemSource source, String displayName) {
         if (container == null || container.spell_ids().isEmpty()) {
             if (!guard.getWorld().isClient()) {
                 GuardDebugManager.broadcast(guard,
-                        "⚠ No spells found in: " + stack.getItem().getName().getString(),
+                        "⚠ No spells found in: " + displayName,
                         Formatting.RED);
             }
             return;
@@ -156,7 +165,7 @@ public class GuardSpellManager {
 
         if (!guard.getWorld().isClient()) {
             GuardDebugManager.broadcast(guard,
-                    "📖 Found " + container.spell_ids().size() + " spells in " + stack.getItem().getName().getString(),
+                    "📖 Found " + container.spell_ids().size() + " spells in " + displayName,
                     Formatting.GREEN);
         }
 
@@ -195,6 +204,67 @@ public class GuardSpellManager {
             }
 
             categorizeSpell(spellId, entry, spell, source);
+        }
+    }
+
+    private void collectEquipmentSetSpells(ItemStack mainhand, ItemStack offhand, ItemStack spellSlot,
+                                           ItemStack head, ItemStack chest, ItemStack legs, ItemStack feet) {
+        List<EquipmentSet.SourcedItemStack> sourcedStacks = new ArrayList<>();
+        if (!head.isEmpty())      sourcedStacks.add(new EquipmentSet.SourcedItemStack(head,     "head"));
+        if (!chest.isEmpty())     sourcedStacks.add(new EquipmentSet.SourcedItemStack(chest,    "chest"));
+        if (!legs.isEmpty())      sourcedStacks.add(new EquipmentSet.SourcedItemStack(legs,     "legs"));
+        if (!feet.isEmpty())      sourcedStacks.add(new EquipmentSet.SourcedItemStack(feet,     "feet"));
+        if (!mainhand.isEmpty())  sourcedStacks.add(new EquipmentSet.SourcedItemStack(mainhand, "mainhand"));
+        if (!offhand.isEmpty())   sourcedStacks.add(new EquipmentSet.SourcedItemStack(offhand,  "offhand"));
+        if (!spellSlot.isEmpty()) sourcedStacks.add(new EquipmentSet.SourcedItemStack(spellSlot,"spell_slot"));
+
+        if (sourcedStacks.isEmpty()) return;
+
+        List<EquipmentSet.Result> results = EquipmentSet.collectFrom(sourcedStacks, guard.getWorld());
+
+        for (EquipmentSet.Result result : results) {
+            EquipmentSet.Definition definition = result.set().value();
+            int pieceCount = result.items().size();
+
+            for (EquipmentSet.Bonus bonus : definition.bonuses()) {
+                if (pieceCount >= bonus.requiredPieceCount()) {
+                    bonus.getSpells().ifPresent(container -> {
+                        if (container.spell_ids() != null && !container.spell_ids().isEmpty()) {
+                            String setLabel = "Set: " + definition.name()
+                                    + " (" + pieceCount + "/" + bonus.requiredPieceCount() + ")";
+                            categorizeSpellsFromContainer(container, ItemSource.EQUIPMENT_SET, setLabel);
+                        }
+                    });
+                    bonus.getAttributes().ifPresent(attrComponent -> {
+                        activeSetAttributes.add(attrComponent);
+                    });
+                }
+            }
+        }
+    }
+
+    private void removeSetAttributeModifiers() {
+        if (guard.getWorld().isClient()) return;
+        for (AttributeModifiersComponent component : activeSetAttributes) {
+            for (var entry : component.modifiers()) {
+                var instance = guard.getAttributeInstance(entry.attribute());
+                if (instance != null) {
+                    instance.removeModifier(entry.modifier().id());
+                }
+            }
+        }
+    }
+
+    private void applySetAttributeModifiers() {
+        if (guard.getWorld().isClient()) return;
+        for (AttributeModifiersComponent component : activeSetAttributes) {
+            for (var entry : component.modifiers()) {
+                var instance = guard.getAttributeInstance(entry.attribute());
+                if (instance != null) {
+                    instance.removeModifier(entry.modifier().id());
+                    instance.addTemporaryModifier(entry.modifier());
+                }
+            }
         }
     }
 
@@ -273,6 +343,13 @@ public class GuardSpellManager {
             return categories;
         }
 
+        if (spell.deliver != null && spell.deliver.type == Spell.Delivery.Type.AFFECT_ARROW) {
+
+            categories.add(SpellCategory.RANGED_BOW);
+            categories.add(SpellCategory.SUPPORT);
+            return categories;
+        }
+
         if (spell.target != null) {
             switch (spell.target.type) {
                 case AREA -> {
@@ -298,19 +375,16 @@ public class GuardSpellManager {
         if (school != null) {
             switch (school.archetype) {
                 case ARCHERY -> {
-                    if (spell.deliver != null && spell.deliver.type == Spell.Delivery.Type.STASH_EFFECT) {
-                        categories.add(SpellCategory.RANGED_BOW);
-                    } else {
-                        categories.add(SpellCategory.RANGED_BOW);
+                    categories.add(SpellCategory.RANGED_BOW);
 
-                        if (spell.deliver != null) {
-                            switch (spell.deliver.type) {
-                                case METEOR -> categories.add(SpellCategory.AREA);
-                                case PROJECTILE, SHOOT_ARROW -> categories.add(SpellCategory.PROJECTILE);
-                                case CLOUD -> categories.add(SpellCategory.AREA);
-                                case CUSTOM -> categories.add(SpellCategory.PROJECTILE);
-                                default -> {}
-                            }
+                    if (spell.deliver != null) {
+                        switch (spell.deliver.type) {
+                            case METEOR -> categories.add(SpellCategory.AREA);
+                            case PROJECTILE, SHOOT_ARROW -> categories.add(SpellCategory.PROJECTILE);
+                            case CLOUD -> categories.add(SpellCategory.AREA);
+                            case CUSTOM -> categories.add(SpellCategory.PROJECTILE);
+                            case AFFECT_ARROW -> categories.add(SpellCategory.SUPPORT);
+                            default -> {}
                         }
                     }
                 }
@@ -318,6 +392,14 @@ public class GuardSpellManager {
                     if (spell.deliver != null) {
                         switch (spell.deliver.type) {
                             case PROJECTILE -> categories.add(SpellCategory.PROJECTILE);
+                            case SHOOT_ARROW -> {
+                                categories.add(SpellCategory.PROJECTILE);
+                                categories.add(SpellCategory.RANGED_BOW);
+                            }
+                            case AFFECT_ARROW -> {
+                                categories.add(SpellCategory.RANGED_BOW);
+                                categories.add(SpellCategory.SUPPORT);
+                            }
                             case METEOR, CLOUD -> categories.add(SpellCategory.AREA);
                             case CUSTOM -> {
                                 if (spell.type != Spell.Type.PASSIVE) {
@@ -328,6 +410,8 @@ public class GuardSpellManager {
                                 if (spell.target != null && spell.target.type == Spell.Target.Type.AIM) {
                                     categories.add(SpellCategory.PROJECTILE);
                                 } else if (spell.target != null && spell.target.type == Spell.Target.Type.FROM_TRIGGER) {
+                                    categories.add(SpellCategory.SUPPORT);
+                                } else if (spell.target != null && spell.target.type == Spell.Target.Type.CASTER) {
                                     categories.add(SpellCategory.SUPPORT);
                                 }
                             }
@@ -346,10 +430,23 @@ public class GuardSpellManager {
                         switch (spell.deliver.type) {
                             case CLOUD, METEOR -> categories.add(SpellCategory.AREA);
                             case PROJECTILE -> categories.add(SpellCategory.PROJECTILE);
+                            case SHOOT_ARROW -> {
+                                categories.add(SpellCategory.PROJECTILE);
+                                categories.add(SpellCategory.RANGED_BOW);
+                            }
+                            case AFFECT_ARROW -> {
+                                categories.add(SpellCategory.RANGED_BOW);
+                                categories.add(SpellCategory.SUPPORT);
+                            }
                             case MELEE -> categories.add(SpellCategory.MELEE);
                             case CUSTOM -> {
                                 if (spell.type != Spell.Type.PASSIVE) {
                                     categories.add(SpellCategory.PROJECTILE);
+                                }
+                            }
+                            case DIRECT -> {
+                                if (spell.target != null && spell.target.type == Spell.Target.Type.FROM_TRIGGER) {
+                                    categories.add(SpellCategory.SUPPORT);
                                 }
                             }
                             default -> {}
@@ -394,6 +491,34 @@ public class GuardSpellManager {
                     }
                     case SPELL_AREA_IMPACT -> categories.add(SpellCategory.PASSIVE_DAMAGE);
                     case EVASION, ROLL, EFFECT_TICK -> categories.add(SpellCategory.PASSIVE_DEFENSE);
+                }
+            }
+        }
+
+        if (spell.secondary_archetype != null) {
+            switch (spell.secondary_archetype) {
+                case ARCHERY -> {
+                    categories.add(SpellCategory.RANGED_BOW);
+                    if (spell.deliver != null && (spell.deliver.type == Spell.Delivery.Type.AFFECT_ARROW
+                            || spell.deliver.type == Spell.Delivery.Type.STASH_EFFECT)) {
+                        categories.add(SpellCategory.SUPPORT);
+                    }
+                }
+                case MELEE -> categories.add(SpellCategory.MELEE);
+                case MAGIC -> {
+                    if (spell.deliver != null) {
+                        switch (spell.deliver.type) {
+                            case PROJECTILE, SHOOT_ARROW -> categories.add(SpellCategory.PROJECTILE);
+                            case METEOR, CLOUD -> categories.add(SpellCategory.AREA);
+                            default -> {}
+                        }
+                    }
+                }
+                case ANY -> {
+
+                    if (categories.isEmpty()) {
+                        categories.add(SpellCategory.SUPPORT);
+                    }
                 }
             }
         }
@@ -559,7 +684,7 @@ public class GuardSpellManager {
         
         if (spell.deliver != null) {
             switch (spell.deliver.type) {
-                case PROJECTILE, SHOOT_ARROW, METEOR, CLOUD:
+                case PROJECTILE, SHOOT_ARROW, AFFECT_ARROW, METEOR, CLOUD:
                     return false;
                 default:
                     break;
@@ -662,11 +787,6 @@ public class GuardSpellManager {
         return id.equals(pattern);
     }
 
-    /**
-     * Returns an augmented SpellPower.Result for the given spell entry, applying
-     * power_modifier (power_multiplier, critical_chance_bonus, critical_damage_bonus)
-     * from all matching MODIFIER spells equipped by the guard.
-     */
     public SpellPower.Result getAugmentedPower(RegistryEntry<Spell> spellEntry) {
         Spell spell = spellEntry.value();
         SpellPower.Result base = SpellPower.getSpellPower(spell.school, guard);
@@ -693,10 +813,6 @@ public class GuardSpellManager {
         );
     }
 
-    /**
-     * Returns the impact list for the given spell entry, with PREPEND/APPEND
-     * impacts from matching MODIFIER spells applied.
-     */
     public List<Spell.Impact> getAugmentedImpacts(RegistryEntry<Spell> spellEntry) {
         Spell spell = spellEntry.value();
         List<Spell.Modifier> modifiers = getModifiersFor(spellEntry);
@@ -714,10 +830,6 @@ public class GuardSpellManager {
         return mutableImpacts;
     }
 
-    /**
-     * Returns the cooldown duration in ticks after applying cooldown_duration_deduct
-     * from all matching MODIFIER spells.
-     */
     public int getAugmentedCooldownTicks(RegistryEntry<Spell> spellEntry, int baseTicks) {
         List<Spell.Modifier> modifiers = getModifiersFor(spellEntry);
         if (modifiers.isEmpty()) return baseTicks;
@@ -730,10 +842,6 @@ public class GuardSpellManager {
         return Math.max(0, baseTicks - deductTicks);
     }
 
-    /**
-     * Returns the range for the given spell entry, with range_add from matching
-     * MODIFIER spells applied.
-     */
     public float getAugmentedRange(RegistryEntry<Spell> spellEntry) {
         Spell spell = spellEntry.value();
         float range = spell.range;

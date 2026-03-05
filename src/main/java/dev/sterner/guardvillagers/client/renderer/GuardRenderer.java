@@ -43,6 +43,7 @@ public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityM
 
     @Override
     public void render(GuardEntity entityIn, float entityYaw, float partialTicks, MatrixStack matrixStackIn, VertexConsumerProvider bufferIn, int packedLightIn) {
+        if (entityIn.isBeingViewedInGui) return;
         this.setModelVisibilities(entityIn);
         super.render(entityIn, entityYaw, partialTicks, matrixStackIn, bufferIn, packedLightIn);
     }

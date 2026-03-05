@@ -1,37 +1,27 @@
 package dev.sterner.guardvillagers.common.entity.goal.spell;
 
-import dev.sterner.guardvillagers.GuardVillagers;
-import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
-import dev.sterner.guardvillagers.common.entity.GuardEntity;
-import dev.sterner.guardvillagers.common.entity.GuardSpellManager;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.effect.StatusEffectInstance;
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.RegistryKey;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Hand;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.world.World;
-import net.spell_engine.api.spell.Spell;
-import net.spell_engine.api.spell.event.SpellHandlers;
-import net.spell_engine.internals.SpellHelper;
-import net.spell_engine.internals.arrow.ArrowHelper;
-import net.spell_power.api.SpellPower;
+import dev.sterner.guardvillagers.*;
+import dev.sterner.guardvillagers.common.debug.*;
+import dev.sterner.guardvillagers.common.entity.*;
+import net.minecraft.entity.*;
+import net.minecraft.entity.effect.*;
+import net.minecraft.registry.*;
+import net.minecraft.registry.entry.*;
+import net.minecraft.sound.*;
+import net.minecraft.util.*;
+import net.minecraft.util.math.*;
+import net.minecraft.world.*;
+import net.spell_engine.api.spell.*;
+import net.spell_engine.api.spell.event.*;
+import net.spell_engine.internals.*;
+import net.spell_engine.internals.arrow.*;
+import net.spell_power.api.*;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class SpellDelivery {
 
-    /**
-     * Returns the effective impacts list for a spell, applying MODIFIER spell
-     * PREPEND/APPEND impacts when the caster is a GuardEntity.
-     */
+
     private static List<Spell.Impact> effectiveImpacts(LivingEntity caster, RegistryEntry<Spell> spellEntry) {
         if (caster instanceof GuardEntity guard) {
             return guard.getSpellManager().getAugmentedImpacts(spellEntry);
@@ -39,10 +29,6 @@ public class SpellDelivery {
         return spellEntry.value().impacts;
     }
 
-    /**
-     * Returns the effective range for a spell, adding range_add from MODIFIER spells
-     * when the caster is a GuardEntity.
-     */
     private static float effectiveRange(LivingEntity caster, RegistryEntry<Spell> spellEntry) {
         if (caster instanceof GuardEntity guard) {
             return guard.getSpellManager().getAugmentedRange(spellEntry);
@@ -299,9 +285,7 @@ public class SpellDelivery {
 
     private static void castAreaDirect(SpellContext context) {
         Spell spell = context.spell();
-        
-        // For MELEE archetype spells with range 0 (like whirlwind), use melee attack range
-        // Otherwise use spell range or fallback to 12.0
+
         double radius;
         boolean isMeleeArchetype = spell.school != null && 
                 spell.school.archetype == net.spell_power.api.SpellSchool.Archetype.MELEE;
@@ -310,14 +294,12 @@ public class SpellDelivery {
         if (effectiveSpellRange > 0) {
             radius = effectiveSpellRange;
         } else if (isMeleeArchetype) {
-            // MELEE archetype with range 0 = use melee attack range (around 3 blocks for guards)
+
             radius = 3.0;
         } else {
             radius = 12.0;
         }
         
-        // For MELEE archetype (spinning attacks), don't require line of sight
-        // Also filter to only hit valid targets for guards
         LivingEntity caster = context.caster();
         boolean requireLineOfSight = !isMeleeArchetype;
 
@@ -327,18 +309,14 @@ public class SpellDelivery {
                 e -> {
                     if (e == caster || !e.isAlive()) return false;
                     
-                    // For guards, only hit valid attack targets
                     if (caster instanceof GuardEntity guard) {
-                        // Don't hit friendlies
                         if (e instanceof net.minecraft.entity.passive.VillagerEntity) return false;
                         if (e instanceof GuardEntity) return false;
                         if (e instanceof net.minecraft.entity.passive.IronGolemEntity) return false;
                         if (e == guard.getOwner()) return false;
-                        // Must be a valid target (hostile or targetable)
                         if (!guard.canTarget(e)) return false;
                     }
                     
-                    // Line of sight check
                     return !requireLineOfSight || caster.canSee(e);
                 }
         );
@@ -553,6 +531,36 @@ public class SpellDelivery {
                 })
                 .toList();
     }
+    public static void castAffectArrow(SpellContext context) {
+        Spell spell = context.spell();
+
+        if (spell.deliver == null || spell.deliver.affect_arrow == null) {
+            logError(context, "AFFECT_ARROW", "Missing affect_arrow configuration - falling back to stash effect");
+            castSelfCast(context);
+            return;
+        }
+
+        logCast(context, "AFFECT_ARROW");
+
+        boolean success = SpellHelper.performImpacts(
+                context.caster().getWorld(),
+                context.caster(),
+                context.caster(),
+                context.caster(),
+                context.entry(),
+                context.getImpacts(),
+                context.impactContext()
+        );
+
+        if (success) {
+            triggerPassiveSpells(context.caster(), context.caster(), context.entry(), false);
+            triggerStashedEffects(context.caster(), context.caster(), context.entry());
+        }
+
+        context.caster().swingHand(net.minecraft.util.Hand.MAIN_HAND, true);
+        playReleaseSound(context);
+    }
+
     public static void castCustom(SpellContext context) {
         Spell spell = context.spell();
 
@@ -702,7 +710,6 @@ public class SpellDelivery {
                 delivered = true;
             }
             default -> {
-                // STASH_EFFECT, SHOOT_ARROW handled by other methods
             }
         }
 
@@ -764,7 +771,6 @@ public class SpellDelivery {
                     Formatting.DARK_GRAY);
         }
 
-        // Create a copy of the status effects to avoid ConcurrentModificationException
         List<StatusEffectInstance> effectsCopy = new ArrayList<>(caster.getStatusEffects());
 
         for (var effectInstance : effectsCopy) {
@@ -809,11 +815,10 @@ public class SpellDelivery {
                                             }
                                         }
 
-                                        // **FIX**: Always provide a valid position for the impact context
                                         Vec3d impactPosition = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
                                         SpellHelper.ImpactContext stashContext = new SpellHelper.ImpactContext()
                                                 .power(SpellPower.getSpellPower(stashSpell.school, caster))
-                                                .position(impactPosition);  // Essential for area impacts
+                                                .position(impactPosition);
 
                                         SpellHelper.performImpacts(
                                                 caster.getWorld(),
@@ -858,19 +863,16 @@ public class SpellDelivery {
             }
 
             for (Spell.Trigger trigger : passiveSpell.passive.triggers) {
-                // Check for supported trigger types
                 if (trigger.type != Spell.Trigger.Type.SPELL_IMPACT_SPECIFIC &&
                     trigger.type != Spell.Trigger.Type.SPELL_IMPACT_ANY &&
                     trigger.type != Spell.Trigger.Type.SPELL_CAST) {
                     continue;
                 }
 
-                // Check if trigger conditions are met
                 if (!doesTriggerMatch(trigger, triggeredSpell, triggeredSpellId, critical)) {
                     continue;
                 }
 
-                // Apply chance check
                 if (trigger.chance > 0 && trigger.chance < 1.0f) {
                     if (guard.getRandom().nextFloat() > trigger.chance) {
                         if (!guard.getWorld().isClient()) {
@@ -893,30 +895,24 @@ public class SpellDelivery {
         }
     }
 
-    /**
-     * Check if a trigger matches the triggering spell conditions.
-     */
+
     private static boolean doesTriggerMatch(Spell.Trigger trigger, Spell triggeredSpell, Identifier triggeredSpellId, boolean critical) {
-        // If trigger requires a specific spell ID, check it
         if (trigger.spell != null && trigger.spell.id != null && !trigger.spell.id.isEmpty()) {
             if (!trigger.spell.id.equals(triggeredSpellId.toString())) {
                 return false;
             }
         }
 
-        // If trigger requires a specific spell type (ACTIVE/PASSIVE), check it
         if (trigger.spell != null && trigger.spell.type != null) {
             if (trigger.spell.type != triggeredSpell.type) {
                 return false;
             }
         }
 
-        // If trigger requires a specific spell school, check it
         if (trigger.spell != null && trigger.spell.school != null) {
             if (triggeredSpell.school == null) {
                 return false;
             }
-            // Compare school IDs
             String triggerSchool = trigger.spell.school;
             String spellSchool = triggeredSpell.school.id.toString();
             if (!spellSchool.equals(triggerSchool) && !spellSchool.contains(triggerSchool)) {
@@ -924,7 +920,6 @@ public class SpellDelivery {
             }
         }
 
-        // If trigger requires a specific archetype, check it
         if (trigger.spell != null && trigger.spell.archetype != null) {
             if (triggeredSpell.school == null || triggeredSpell.school.archetype == null) {
                 return false;
@@ -934,14 +929,12 @@ public class SpellDelivery {
             }
         }
 
-        // If trigger requires critical hit, check it
         if (trigger.impact != null && trigger.impact.critical != null && trigger.impact.critical) {
             if (!critical) {
                 return false;
             }
         }
 
-        // If trigger requires a specific impact type (DAMAGE/HEAL), check it
         if (trigger.impact != null && trigger.impact.impact_type != null) {
             boolean hasMatchingImpact = false;
             if (triggeredSpell.impacts != null) {
@@ -958,14 +951,10 @@ public class SpellDelivery {
         return true;
     }
 
-    /**
-     * Execute a passive spell that has been triggered.
-     */
     private static void executePassiveSpell(GuardEntity guard, Entity target, GuardSpellManager.CategorizedSpell passive, Spell passiveSpell) {
         SpellHelper.ImpactContext passiveContext = new SpellHelper.ImpactContext()
                 .power(SpellPower.getSpellPower(passiveSpell.school, guard));
 
-        // Handle CLOUD delivery type
         if (passiveSpell.deliver != null && passiveSpell.deliver.type == Spell.Delivery.Type.CLOUD) {
             Vec3d targetPos = target.getPos();
             passiveContext = passiveContext.position(targetPos);
@@ -987,7 +976,6 @@ public class SpellDelivery {
             return;
         }
 
-        // Handle AREA target type
         if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.AREA) {
             Vec3d center = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
             passiveContext = passiveContext.position(center);
@@ -1027,7 +1015,6 @@ public class SpellDelivery {
             return;
         }
 
-        // Default: direct impact on target
         if (target instanceof LivingEntity livingTarget) {
             SpellHelper.performImpacts(
                     guard.getWorld(),

@@ -21,5 +21,11 @@
   "guardvillagers.midnightconfig.guardAttackMobBlacklist": "Guard Attack Blacklist",
   "guardvillagers.midnightconfig.guardVillagerHelpRange": "Guard Help Range",
   "guardvillagers.midnightconfig.amountOfHealthRegenerated": "Guard Regen",
-  "guardvillagers.midnightconfig.attackAllMobs": "Guard Attack All Mobs"
+  "guardvillagers.midnightconfig.attackAllMobs": "Guard Attack All Mobs",
+  "guardvillagers.gui.button.follow": "Toggle Follow",
+  "guardvillagers.gui.button.patrol": "Toggle Patrol",
+  "guardvillagers.hiring.hired": "Guard hired! Sneak + right-click to release.",
+  "guardvillagers.hiring.released": "Guard released.",
+  "guardvillagers.hiring.not_enough": "You need %s %s to hire this guard.",
+  "guardvillagers.hiring.already_hired": "This guard is already hired by someone else."
 }

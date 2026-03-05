@@ -221,7 +221,11 @@ public class GuardVillagers implements ModInitializer {
     }
 
     public static boolean hotvChecker(PlayerEntity player, GuardEntity guard) {
+        if (guard.isHired()) {
+            return guard.getOwnerId() != null && guard.getOwnerId().equals(player.getUuid());
+        }
         return player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv
-                || ! GuardVillagersConfig.giveGuardStuffHotv || guard.getPlayerEntityReputation(player) > GuardVillagersConfig.reputationRequirement && !player.getWorld().isClient();
+                || !GuardVillagersConfig.giveGuardStuffHotv
+                || guard.getPlayerEntityReputation(player) > GuardVillagersConfig.reputationRequirement && !player.getWorld().isClient();
     }
 }

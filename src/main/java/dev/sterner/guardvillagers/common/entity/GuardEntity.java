@@ -56,8 +56,7 @@ import java.util.*;
 import java.util.function.*;
 import java.util.stream.*;
 
-public class GuardEntity extends PathAwareEntity implements CrossbowUser, RangedAttackMob, Angerable, InventoryChangedListener, InteractionObserver, SpellCasterEntity {
-    protected static final TrackedData<Optional<UUID>> OWNER_UNIQUE_ID = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.OPTIONAL_UUID);
+public class GuardEntity extends TameableEntity implements CrossbowUser, RangedAttackMob, Angerable, InventoryChangedListener, InteractionObserver, SpellCasterEntity {
     private static final EntityAttributeModifier USE_ITEM_SPEED_PENALTY = new EntityAttributeModifier(GuardVillagers.id("speed_penalty"), -0.25D, EntityAttributeModifier.Operation.ADD_VALUE);
     private static final TrackedData<Optional<BlockPos>> GUARD_POS = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.OPTIONAL_BLOCK_POS);
     private static final TrackedData<Boolean> PATROLLING = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
@@ -102,6 +101,8 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     public int shieldCoolDown;
     public int kickCoolDown;
     public boolean interacting;
+    @Nullable private UUID hotvFollowerId;
+    public boolean isBeingViewedInGui;
     public boolean spawnWithArmor;
     private int remainingPersistentAngerTime;
     private UUID persistentAngerTarget;
@@ -442,13 +443,10 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     @Override
     public void readCustomDataFromNbt(NbtCompound nbt) {
         super.readCustomDataFromNbt(nbt);
-        UUID uuid = nbt.containsUuid("Owner") ? nbt.getUuid("Owner") : null;
-        if (uuid != null) {
-            try {
-                this.setOwnerId(uuid);
-            } catch (Throwable throwable) {
-                this.setOwnerId(null);
-            }
+        if (nbt.contains("Hired") && !nbt.getBoolean("Hired") && isTamed()) {
+            hotvFollowerId = getOwnerUuid();
+            setOwnerUuid(null);
+            setTamed(false, false);
         }
         this.setGuardEntityVariant(nbt.getInt("Type"));
         this.kickTicks = nbt.getInt("KickTicks");
@@ -517,10 +515,6 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         nbt.putBoolean("SpawnWithArmor", this.spawnWithArmor);
         nbt.putLong("LastGossipTime", this.lastGossipTime);
         nbt.putLong("LastGossipDecay", this.lastGossipDecayTime);
-
-        if (this.getOwnerId() != null) {
-            nbt.putUuid("Owner", this.getOwnerId());
-        }
 
         NbtList listnbt = new NbtList();
         for (int i = 0; i < this.guardInventory.size(); ++i) {
@@ -605,8 +599,13 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     public LivingEntity getOwner() {
         try {
             UUID uuid = this.getOwnerId();
-            boolean heroOfTheVillage = uuid != null && getWorld().getPlayerByUuid(uuid) != null && getWorld().getPlayerByUuid(uuid).hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE);
-            return uuid == null || (getWorld().getPlayerByUuid(uuid) != null && (!heroOfTheVillage && GuardVillagersConfig.followHero) || !GuardVillagersConfig.followHero && getWorld().getPlayerByUuid(uuid) == null) ? null : getWorld().getPlayerByUuid(uuid);
+            if (uuid == null) return null;
+            PlayerEntity player = getWorld().getPlayerByUuid(uuid);
+            if (player == null) return null;
+            if (this.isHired()) return player;
+            boolean hotv = player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE);
+            if (GuardVillagersConfig.followHero && !hotv) return null;
+            return player;
         } catch (IllegalArgumentException illegalargumentexception) {
             return null;
         }
@@ -618,11 +617,12 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
 
     @Nullable
     public UUID getOwnerId() {
-        return this.dataTracker.get(OWNER_UNIQUE_ID).orElse(null);
+        return isTamed() ? getOwnerUuid() : hotvFollowerId;
     }
 
-    public void setOwnerId(@Nullable UUID p_184754_1_) {
-        this.dataTracker.set(OWNER_UNIQUE_ID, Optional.ofNullable(p_184754_1_));
+    public void setOwnerId(@Nullable UUID uuid) {
+        if (isTamed()) setOwnerUuid(uuid);
+        else hotvFollowerId = uuid;
     }
 
     public boolean tryAttack(Entity target) {
@@ -914,7 +914,6 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         builder.add(GUARD_VARIANT, 0);
         builder.add(DATA_CHARGING_STATE, false);
         builder.add(KICKING, false);
-        builder.add(OWNER_UNIQUE_ID, Optional.empty());
         builder.add(FOLLOWING, false);
         builder.add(GUARD_POS, Optional.empty());
         builder.add(PATROLLING, false);
@@ -1442,6 +1441,31 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
         this.dataTracker.set(FOLLOWING, following);
     }
 
+    public boolean isHired() {
+        return isTamed();
+    }
+
+    public void setHired(boolean hired) {
+        setTamed(hired, false);
+    }
+
+    public void releaseGuard() {
+        setTamed(false, false);
+        setOwnerUuid(null);
+        hotvFollowerId = null;
+        setFollowing(false);
+    }
+
+    @Override
+    public boolean isBreedingItem(ItemStack stack) {
+        return false;
+    }
+
+    @Override
+    public @Nullable PassiveEntity createChild(ServerWorld world, PassiveEntity entity) {
+        return null;
+    }
+
     @Override
     public boolean canTarget(LivingEntity target) {
         return !GuardVillagersConfig.mobBlackList.contains(target.getSavedEntityId()) && !target.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && !this.isOwner(target) && !(target instanceof VillagerEntity) && !(target instanceof IronGolemEntity) && !(target instanceof GuardEntity) && super.canTarget(target);
@@ -1489,8 +1513,48 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     }
 
     @Override
-    protected ActionResult interactMob(PlayerEntity player, Hand hand) {
-        boolean configValues = player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.setGuardPatrolHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv && GuardVillagersConfig.setGuardPatrolHotv || this.getPlayerEntityReputation(player) >= GuardVillagersConfig.reputationRequirement || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && !GuardVillagersConfig.giveGuardStuffHotv && !GuardVillagersConfig.setGuardPatrolHotv || this.getOwnerId() != null && this.getOwnerId().equals(player.getUuid());
+    public ActionResult interactMob(PlayerEntity player, Hand hand) {
+        ItemStack heldStack = player.getStackInHand(hand);
+
+        if (GuardVillagersConfig.allowHiring && !this.isHired() && !player.shouldCancelInteraction()) {
+            Identifier hiringId = Identifier.tryParse(GuardVillagersConfig.hiringItem);
+            if (hiringId != null && !heldStack.isEmpty()
+                    && Registries.ITEM.getId(heldStack.getItem()).equals(hiringId)) {
+                if (!this.getWorld().isClient()) {
+                    int cost = GuardVillagersConfig.hiringItemCount;
+                    if (heldStack.getCount() >= cost) {
+                        if (!player.getAbilities().creativeMode) {
+                            heldStack.decrement(cost);
+                        }
+                        this.setOwnerUuid(player.getUuid());
+                        this.setTamed(true, false);
+                        this.hotvFollowerId = null;
+                        player.sendMessage(Text.translatable("guardvillagers.hiring.hired"), true);
+                    } else {
+                        player.sendMessage(Text.translatable("guardvillagers.hiring.not_enough",
+                                cost, Text.translatable(heldStack.getItem().getTranslationKey())), true);
+                    }
+                }
+                return ActionResult.SUCCESS;
+            }
+        }
+
+        if (this.isHired()) {
+            boolean isOwner = this.getOwnerId() != null && this.getOwnerId().equals(player.getUuid());
+            if (!isOwner) {
+                if (!this.getWorld().isClient()) {
+                    player.sendMessage(Text.translatable("guardvillagers.hiring.already_hired"), true);
+                }
+                return ActionResult.CONSUME;
+            }
+        }
+
+        boolean configValues = player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv
+                || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.setGuardPatrolHotv
+                || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv && GuardVillagersConfig.setGuardPatrolHotv
+                || this.getPlayerEntityReputation(player) >= GuardVillagersConfig.reputationRequirement
+                || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && !GuardVillagersConfig.giveGuardStuffHotv && !GuardVillagersConfig.setGuardPatrolHotv
+                || this.getOwnerId() != null && this.getOwnerId().equals(player.getUuid());
         boolean inventoryRequirements = !player.shouldCancelInteraction();
         if (inventoryRequirements) {
             if (this.getTarget() != player && this.canMoveVoluntarily() && configValues) {
@@ -1523,13 +1587,13 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
             if (damage < 1.0F) {
                 damage = 1.0F;
             }
+            var list = Arrays.stream(EquipmentSlot.values()).filter(EquipmentSlot::isArmorSlot).toList();
             for (int i = 0; i < this.guardInventory.size(); ++i) {
+                if (i >= list.size()) break;
                 ItemStack itemstack = this.guardInventory.getStack(i);
 
                 if ((!damageSource.isOf(DamageTypes.ON_FIRE) || !itemstack.getItem().getComponents().contains(DataComponentTypes.FIRE_RESISTANT)) && itemstack.getItem() instanceof ArmorItem) {
-                    int j = i;
-                    var list = Arrays.stream(EquipmentSlot.values()).filter(EquipmentSlot::isArmorSlot).toList();
-                    itemstack.damage((int) damage, this, list.get(j));
+                    itemstack.damage((int) damage, this, list.get(i));
                 }
             }
         }
@@ -1579,7 +1643,9 @@ public class GuardEntity extends PathAwareEntity implements CrossbowUser, Ranged
     }
 
     public void openGui(ServerPlayerEntity player) {
-        this.setOwnerId(player.getUuid());
+        if (!this.isHired()) {
+            this.setOwnerId(player.getUuid());
+        }
         if (player.currentScreenHandler != player.playerScreenHandler) {
             player.closeHandledScreen();
         }

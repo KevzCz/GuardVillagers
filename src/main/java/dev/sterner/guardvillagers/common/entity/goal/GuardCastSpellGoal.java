@@ -1,27 +1,17 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
-import dev.sterner.guardvillagers.GuardVillagersConfig;
-import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
-import dev.sterner.guardvillagers.common.entity.GuardEntity;
-import dev.sterner.guardvillagers.common.entity.GuardSpellManager;
-import dev.sterner.guardvillagers.common.entity.goal.spell.BaseRangedSpellGoal;
-import dev.sterner.guardvillagers.common.entity.goal.spell.ConditionalSpellGoal;
-import dev.sterner.guardvillagers.common.entity.goal.spell.SpellContext;
-import dev.sterner.guardvillagers.common.entity.goal.spell.SpellDelivery;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityType;
-import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.ai.NoPenaltyTargeting;
-import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.util.Formatting;
-import net.minecraft.util.Hand;
-import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-import net.spell_engine.api.spell.Spell;
-import net.spell_engine.api.spell.registry.SpellRegistry;
+import dev.sterner.guardvillagers.*;
+import dev.sterner.guardvillagers.common.entity.*;
+import dev.sterner.guardvillagers.common.entity.goal.spell.*;
+import net.minecraft.entity.*;
+import net.minecraft.entity.ai.*;
+import net.minecraft.registry.entry.*;
+import net.minecraft.util.*;
+import net.minecraft.util.math.*;
+import net.spell_engine.api.spell.*;
+import net.spell_engine.api.spell.registry.*;
 
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 public class GuardCastSpellGoal extends BaseRangedSpellGoal {
     private static final float ATTACK_RADIUS = 16.0F;
@@ -265,6 +255,7 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
                     SpellDelivery.castDirect(context);
                 }
             }
+            case AFFECT_ARROW -> SpellDelivery.castAffectArrow(context);
             case MELEE -> SpellDelivery.castDirect(context);
             case STASH_EFFECT -> SpellDelivery.castStashEffect(context);
         }
@@ -294,12 +285,9 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
             return null;
         }
 
-        // Area spells (excluding ones that are ALSO healing - those are area-heals like springwater)
         Optional<GuardSpellManager.CategorizedSpell> areaSpell =
                 manager.getBestSpell(GuardSpellManager.SpellCategory.AREA,
                         s -> {
-                            // Don't pick area spells that are ALSO categorized as healing
-                            // (those are AoE heals, not direct combat spells)
                             boolean isNotAlsoHealing = manager.getSpells(GuardSpellManager.SpellCategory.HEALING)
                                     .stream()
                                     .noneMatch(healing -> healing.spellId().equals(s.spellId()));
@@ -314,7 +302,6 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
             return areaSpell.get().spellId();
         }
 
-        // Projectile spells
         Optional<GuardSpellManager.CategorizedSpell> projectileSpell =
                 manager.getBestSpell(GuardSpellManager.SpellCategory.PROJECTILE,
                         s -> conditionalSpells.canCastSpell(s.spellId())

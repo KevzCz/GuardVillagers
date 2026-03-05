@@ -65,4 +65,10 @@ public class GuardVillagersConfig extends MidnightConfig {
     public static boolean guardArrowsHurtVillagers = true;
     @Entry
     public static float spawnChancePerVillager = 0.5f;
+    @Entry
+    public static boolean allowHiring = true;
+    @Entry
+    public static String hiringItem = "minecraft:emerald";
+    @Entry
+    public static int hiringItemCount = 5;
 }

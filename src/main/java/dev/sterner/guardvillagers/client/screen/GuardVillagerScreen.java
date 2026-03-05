@@ -8,6 +8,7 @@
     import net.fabricmc.api.*;
     import net.fabricmc.fabric.api.client.networking.v1.*;
     import net.minecraft.client.gui.*;
+    import net.minecraft.client.gui.tooltip.*;
     import net.minecraft.client.gui.screen.*;
     import net.minecraft.client.gui.screen.ingame.*;
     import net.minecraft.client.gui.widget.*;
@@ -48,17 +49,30 @@
         }
     
         @Override
+        public void removed() {
+            guardEntity.isBeingViewedInGui = false;
+            super.removed();
+        }
+
+        @Override
         protected void init() {
             super.init();
-            if (!GuardVillagersConfig.followHero || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)) {
+            guardEntity.isBeingViewedInGui = true;
+            boolean isHired = guardEntity.isHired();
+            boolean isHiredOwner = isHired
+                    && guardEntity.getOwnerId() != null
+                    && guardEntity.getOwnerId().equals(player.getUuid());
+            if (isHiredOwner || (!isHired && (!GuardVillagersConfig.followHero || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)))) {
                 this.addDrawableChild(new GuardGuiButton(this.x + 100, this.height / 2 - 40, 20, 18, GUARD_FOLLOWING_ICONS, GUARD_NOT_FOLLOWING_ICONS, true,
+                        Text.translatable("guardvillagers.gui.button.follow"),
                         (button) -> {
                             ClientPlayNetworking.send(new GuardFollowPacket(guardEntity.getId()));
                         })
                 );
             }
-            if (!GuardVillagersConfig.setGuardPatrolHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)) {
+            if (isHiredOwner || (!isHired && (!GuardVillagersConfig.setGuardPatrolHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)))) {
                 this.addDrawableChild(new GuardGuiButton(this.x + 120, this.height / 2 - 40, 20, 18, GUARD_PATROLLING_ICONS, GUARD_NOT_PATROLLING_ICONS, false,
+                        Text.translatable("guardvillagers.gui.button.patrol"),
                         (button) -> {
                             buttonPressed = !buttonPressed;
                             ClientPlayNetworking.send(new GuardPatrolPacket(guardEntity.getId(), buttonPressed));
@@ -74,7 +88,12 @@
             int i = (this.width - this.backgroundWidth) / 2;
             int j = (this.height - this.backgroundHeight) / 2;
             ctx.drawTexture(GUARD_GUI_TEXTURES, i, j, 0, 0, this.backgroundWidth, this.backgroundHeight);
-            InventoryScreen.drawEntity(ctx, i + 51, j + 75, (i + 51), (j + 75 - 50), 30, 0.0625f, this.mousePosX, this.mousePosY, this.guardEntity);
+            float savedPrevBodyYaw = this.guardEntity.prevBodyYaw;
+            this.guardEntity.prevBodyYaw = this.guardEntity.bodyYaw;
+            this.guardEntity.isBeingViewedInGui = false;
+            InventoryScreen.drawEntity(ctx, i + 26, j + 8, i + 76, j + 82, 30, 0.0625f, this.mousePosX, this.mousePosY, this.guardEntity);
+            this.guardEntity.isBeingViewedInGui = true;
+            this.guardEntity.prevBodyYaw = savedPrevBodyYaw;
         }
     
         /*
@@ -99,7 +118,7 @@
     
         @Override
         protected void drawForeground(DrawContext ctx, int x, int y) {
-            super.drawForeground(ctx, x, y);
+            ctx.drawText(this.textRenderer, this.title, this.titleX, this.titleY, 4210752, false);
             int health = MathHelper.ceil(guardEntity.getHealth());
             int armor = guardEntity.getArmor();
     
@@ -148,19 +167,20 @@
             private final ButtonTextures newTexture;
             private final boolean isFollowButton;
     
-            public GuardGuiButton(int xIn, int yIn, int widthIn, int heightIn, ButtonTextures resourceLocationIn, ButtonTextures newTexture, boolean isFollowButton, ButtonWidget.PressAction  onPressIn) {
+            public GuardGuiButton(int xIn, int yIn, int widthIn, int heightIn, ButtonTextures resourceLocationIn, ButtonTextures newTexture, boolean isFollowButton, Text tooltip, ButtonWidget.PressAction onPressIn) {
                 super(xIn, yIn, widthIn, heightIn, resourceLocationIn, onPressIn);
                 this.texture = resourceLocationIn;
                 this.newTexture = newTexture;
                 this.isFollowButton = isFollowButton;
+                this.setTooltip(Tooltip.of(tooltip));
             }
-    
+
             public boolean requirementsForTexture() {
                 boolean following = GuardVillagerScreen.this.guardEntity.isFollowing();
                 boolean patrol = GuardVillagerScreen.this.guardEntity.isPatrolling();
                 return this.isFollowButton ? following : patrol;
             }
-    
+
             @Override
             public void renderWidget(DrawContext graphics, int mouseX, int mouseY, float partialTicks) {
                 ButtonTextures icon = this.requirementsForTexture() ? this.texture : this.newTexture;

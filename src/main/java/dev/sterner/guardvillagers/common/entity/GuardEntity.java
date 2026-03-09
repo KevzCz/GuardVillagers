@@ -84,7 +84,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     private SpellCooldownManager cooldownManager;
     private int channelTickIndex = 0;
     private SpellCast.Process spellCastProcess = null;
-    private ArrowShootContext arrowShootContext = ArrowShootContext.EMPTY;
+    private ArrowShootContext arrowShootContext = null;
     @Nullable
     private Melee.ActiveAttack meleeSkillAttack = null;
 
@@ -1265,7 +1265,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
             GuardDebugManager.broadcast(this,
                     "⚠️ No arrow spells to apply",
                     Formatting.YELLOW);
-            this.setArrowShootContext(ArrowShootContext.EMPTY);
+            this.setArrowShootContext(null);
         }
 
         ItemEnchantmentsComponent enchantments = EnchantmentHelper.getEnchantments(weapon);
@@ -1342,7 +1342,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
                             Formatting.YELLOW);
                 }
             }
-            this.setArrowShootContext(ArrowShootContext.EMPTY);
+            this.setArrowShootContext(null);
         } else {
             GuardDebugManager.broadcast(this,
                     "⏭️ Skipping spell application: context=" + (shootContext != null) +

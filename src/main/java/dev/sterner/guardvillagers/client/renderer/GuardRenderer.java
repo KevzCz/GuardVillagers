@@ -3,10 +3,12 @@ package dev.sterner.guardvillagers.client.renderer;
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.GuardVillagersClient;
 import dev.sterner.guardvillagers.GuardVillagersConfig;
+import dev.sterner.guardvillagers.client.animation.GuardAnimationState;
 import dev.sterner.guardvillagers.client.model.GuardArmorModel;
 import dev.sterner.guardvillagers.client.model.GuardSteveModel;
 import dev.sterner.guardvillagers.client.model.GuardVillagerModel;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardItemTags;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.BipedEntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactory;
@@ -16,10 +18,10 @@ import net.minecraft.client.render.entity.model.EntityModelLayers;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.ItemStack;
-import net.minecraft.util.Arm;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.UseAction;
+import net.minecraft.util.math.RotationAxis;
 import org.jetbrains.annotations.Nullable;
 
 public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityModel<GuardEntity>> {
@@ -45,6 +47,30 @@ public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityM
     public void render(GuardEntity entityIn, float entityYaw, float partialTicks, MatrixStack matrixStackIn, VertexConsumerProvider bufferIn, int packedLightIn) {
         if (entityIn.isBeingViewedInGui) return;
         this.setModelVisibilities(entityIn);
+
+        
+        float spin = entityIn.getCastAnimationSpin();
+        if (spin != 0f && entityIn.isCastingSpell()) {
+            long worldTime = entityIn.getWorld().getTime();
+            int ticks;
+            float channelInterval;
+
+            var process = entityIn.getSpellCastProcess();
+            if (process != null) {
+                ticks = process.spellCastTicksSoFar(worldTime);
+                channelInterval = process.channelInterval(entityIn);
+            } else {
+                ticks = (int) Math.max(worldTime - entityIn.getCastStartedAt(), 0L);
+                channelInterval = entityIn.getCastChannelInterval();
+            }
+
+            if (channelInterval > 0) {
+                float turn = spin / (channelInterval / 20f);
+                float degrees = turn * ticks + partialTicks * turn;
+                matrixStackIn.multiply(RotationAxis.POSITIVE_Y.rotationDegrees(degrees));
+            }
+        }
+
         super.render(entityIn, entityYaw, partialTicks, matrixStackIn, bufferIn, packedLightIn);
     }
 
@@ -58,13 +84,23 @@ public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityM
         BipedEntityModel.ArmPose bipedmodel$armpose1 = this.getArmPose(entityIn, itemstack, itemstack1,
                 Hand.OFF_HAND);
         guardmodel.sneaking = entityIn.isSneaking();
-        if (entityIn.getMainArm() == Arm.RIGHT) {
-            guardmodel.rightArmPose = bipedmodel$armpose;
-            guardmodel.leftArmPose = bipedmodel$armpose1;
-        } else {
-            guardmodel.rightArmPose = bipedmodel$armpose1;
-            guardmodel.leftArmPose = bipedmodel$armpose;
+
+        
+        guardmodel.rightArmPose = bipedmodel$armpose;
+        guardmodel.leftArmPose = bipedmodel$armpose1;
+
+        GuardAnimationState animState = GuardAnimationState.getOrCreate(entityIn);
+        if (animState.isDrivingPose(entityIn) && !isDrawingBow(entityIn)) {
+            guardmodel.rightArmPose = BipedEntityModel.ArmPose.ITEM;
+            guardmodel.leftArmPose = BipedEntityModel.ArmPose.EMPTY;
         }
+    }
+
+    private static boolean isDrawingBow(GuardEntity entity) {
+        if (entity.getItemUseTimeLeft() <= 0) {
+            return false;
+        }
+        return entity.getMainHandStack().getUseAction() == UseAction.BOW;
     }
 
     private BipedEntityModel.ArmPose getArmPose(GuardEntity entityIn, ItemStack itemStackMain, ItemStack itemStackOff, Hand handIn) {
@@ -90,12 +126,16 @@ public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityM
                         }
                         break;
                     default:
-                        bipedmodel$armpose = BipedEntityModel.ArmPose.EMPTY;
+                        bipedmodel$armpose = entityIn.isCastingSpell() && handIn == Hand.MAIN_HAND
+                                ? BipedEntityModel.ArmPose.EMPTY
+                                : BipedEntityModel.ArmPose.ITEM;
                         break;
                 }
+            } else if (entityIn.isCastingSpell() && handIn == Hand.MAIN_HAND) {
+                bipedmodel$armpose = BipedEntityModel.ArmPose.EMPTY;
             } else {
-                boolean flag1 = itemStackMain.getItem() instanceof CrossbowItem;
-                boolean flag2 = itemStackOff.getItem() instanceof CrossbowItem;
+                boolean flag1 = GuardItemTags.isCrossbowLikeWeapon(itemStackMain);
+                boolean flag2 = GuardItemTags.isCrossbowLikeWeapon(itemStackOff);
                 if (flag1 && entityIn.isAttacking()) {
                     bipedmodel$armpose = BipedEntityModel.ArmPose.CROSSBOW_HOLD;
                 }
@@ -112,6 +152,16 @@ public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityM
     @Override
     protected void scale(GuardEntity entitylivingbaseIn, MatrixStack matrixStackIn, float partialTickTime) {
         matrixStackIn.scale(0.9375F, 0.9375F, 0.9375F);
+    }
+
+    @Override
+    protected void setupTransforms(GuardEntity entity, MatrixStack matrices, float animationProgress, float bodyYaw, float tickDelta, float scale) {
+        super.setupTransforms(entity, matrices, animationProgress, bodyYaw, tickDelta, scale);
+        GuardAnimationState state = GuardAnimationState.getOrCreate(entity);
+        if (state.isDrivingPose(entity)) {
+            state.applier.setTickDelta(tickDelta);
+            GuardAnimationState.applyBodyTransforms(matrices, state.applier);
+        }
     }
 
     @Nullable

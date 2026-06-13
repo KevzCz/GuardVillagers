@@ -1,6 +1,5 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
-
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import dev.sterner.guardvillagers.common.entity.goal.spell.BaseZoneGoal;
 import net.minecraft.util.math.Vec3d;
@@ -28,6 +27,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
     @Override
     public boolean canStart() {
         if (guard.isRemoved() || !guard.isAlive()) return false;
+        if (guard.isCastingSpell() || guard.isCastingMeleeSpell()) return false;
         if (shouldRun != null && !shouldRun.test(guard)) return false;
 
         if (!findAndCacheZone()) return false;
@@ -38,6 +38,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
     @Override
     public boolean shouldContinue() {
         if (guard.isRemoved() || !guard.isAlive()) return false;
+        if (guard.isCastingSpell() || guard.isCastingMeleeSpell()) return false;
         if (zoneRef == null || !zoneRef.isAlive()) return false;
         return !anchoredForThisZone;
     }
@@ -109,8 +110,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
             var manager = g.getSpellManager();
             return manager.hasArcherySpells()
                     || manager.hasProjectileSpells()
-                    || manager.hasHealingSpells()
-                    || manager.hasSupportSpells();
+                    || dev.sterner.guardvillagers.common.ai.GuardCombatRole.isDedicatedSupport(g);
         };
     }
 }

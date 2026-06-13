@@ -1,7 +1,11 @@
 package dev.sterner.guardvillagers;
 
+import dev.sterner.guardvillagers.common.animation.GuardAnimationDurations;
 import dev.sterner.guardvillagers.common.command.*;
 import dev.sterner.guardvillagers.common.entity.*;
+import dev.sterner.guardvillagers.common.loot.GuardLootRegistration;
+import dev.sterner.guardvillagers.common.special.SpecialGuardSpawner;
+import dev.sterner.guardvillagers.common.special.SpecialGuardRegistry;
 import dev.sterner.guardvillagers.common.network.*;
 import dev.sterner.guardvillagers.common.screenhandler.*;
 import eu.midnightdust.lib.config.*;
@@ -13,8 +17,11 @@ import net.fabricmc.fabric.api.event.player.*;
 import net.fabricmc.fabric.api.itemgroup.v1.*;
 import net.fabricmc.fabric.api.networking.v1.*;
 import net.fabricmc.fabric.api.object.builder.v1.entity.*;
+import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
 import net.fabricmc.fabric.api.screenhandler.v1.*;
 import net.minecraft.entity.*;
+import net.minecraft.resource.ResourceType;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.entity.ai.brain.*;
 import net.minecraft.entity.damage.*;
 import net.minecraft.entity.effect.*;
@@ -65,6 +72,7 @@ public class GuardVillagers implements ModInitializer {
     @Override
     public void onInitialize() {
         MidnightConfig.init(MODID, GuardVillagersConfig.class);
+        GuardLootRegistration.register();
         FabricDefaultAttributeRegistry.register(GUARD_VILLAGER, GuardEntity.createAttributes());
         
         CommandRegistrationCallback.EVENT.register(GuardDebugCommand::register);
@@ -82,6 +90,11 @@ public class GuardVillagers implements ModInitializer {
 
         ServerPlayNetworking.registerGlobalReceiver(GuardFollowPacket.ID, GuardFollowPacket::handle);
         ServerPlayNetworking.registerGlobalReceiver(GuardPatrolPacket.ID, GuardPatrolPacket::handle);
+
+        ServerLifecycleEvents.SERVER_STARTING.register(server ->
+                GuardAnimationDurations.INSTANCE.reload(server.getResourceManager()));
+        ResourceManagerHelper.get(ResourceType.SERVER_DATA).registerReloadListener(SpecialGuardRegistry.INSTANCE);
+        ResourceManagerHelper.get(ResourceType.SERVER_DATA).registerReloadListener(GuardArmorThemeManager.INSTANCE);
 
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(entries -> entries.add(GUARD_SPAWN_EGG));
 
@@ -104,8 +117,12 @@ public class GuardVillagers implements ModInitializer {
                                     int i = GuardEntity.getRandomTypeForBiome(guardEntity.getWorld(), guardEntity.getBlockPos());
                                     guardEntity.setGuardVariant(i);
                                     guardEntity.setPersistent();
-                                    guardEntity.setCustomName(villagerEntity.getCustomName());
-                                    guardEntity.setCustomNameVisible(villagerEntity.isCustomNameVisible());
+                                    if (world instanceof ServerWorld serverWorld) {
+                                        SpecialGuardSpawner.configureNaturalSpawn(guardEntity, serverWorld, villagerEntity);
+                                    } else {
+                                        guardEntity.setCustomName(villagerEntity.getCustomName());
+                                        guardEntity.setCustomNameVisible(villagerEntity.isCustomNameVisible());
+                                    }
                                     guardEntity.setEquipmentDropChance(EquipmentSlot.HEAD, 100.0F);
                                     guardEntity.setEquipmentDropChance(EquipmentSlot.CHEST, 100.0F);
                                     guardEntity.setEquipmentDropChance(EquipmentSlot.FEET, 100.0F);
@@ -131,7 +148,6 @@ public class GuardVillagers implements ModInitializer {
             }
         });
     }
-
 
     private boolean onDamage(LivingEntity entity, DamageSource source, float amount) {
         Entity attacker = source.getAttacker();
@@ -205,8 +221,12 @@ public class GuardVillagers implements ModInitializer {
         int i = GuardEntity.getRandomTypeForBiome(guard.getWorld(), guard.getBlockPos());
         guard.setGuardVariant(i);
         guard.setPersistent();
-        guard.setCustomName(villagerEntity.getCustomName());
-        guard.setCustomNameVisible(villagerEntity.isCustomNameVisible());
+        if (world instanceof ServerWorld serverWorld) {
+            SpecialGuardSpawner.configureNaturalSpawn(guard, serverWorld, villagerEntity);
+        } else {
+            guard.setCustomName(villagerEntity.getCustomName());
+            guard.setCustomNameVisible(villagerEntity.isCustomNameVisible());
+        }
         guard.setEquipmentDropChance(EquipmentSlot.HEAD, 100.0F);
         guard.setEquipmentDropChance(EquipmentSlot.CHEST, 100.0F);
         guard.setEquipmentDropChance(EquipmentSlot.FEET, 100.0F);
@@ -224,8 +244,8 @@ public class GuardVillagers implements ModInitializer {
         if (guard.isHired()) {
             return guard.getOwnerId() != null && guard.getOwnerId().equals(player.getUuid());
         }
-        return player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE) && GuardVillagersConfig.giveGuardStuffHotv
-                || !GuardVillagersConfig.giveGuardStuffHotv
-                || guard.getPlayerEntityReputation(player) > GuardVillagersConfig.reputationRequirement && !player.getWorld().isClient();
+        return guard.playerHasHeroInteractionAccess(player) && dev.sterner.guardvillagers.common.special.GuardEffectiveConfig.giveGuardStuffHotv(guard)
+                || !dev.sterner.guardvillagers.common.special.GuardEffectiveConfig.giveGuardStuffHotv(guard)
+                || guard.getPlayerEntityReputation(player) > dev.sterner.guardvillagers.common.special.GuardEffectiveConfig.reputationRequirement(guard) && !player.getWorld().isClient();
     }
 }

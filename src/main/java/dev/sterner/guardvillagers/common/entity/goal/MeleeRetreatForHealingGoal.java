@@ -1,5 +1,6 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
+import dev.sterner.guardvillagers.common.ai.GuardCombatRole;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import dev.sterner.guardvillagers.common.entity.goal.spell.BaseZoneGoal;
 import net.minecraft.component.DataComponentTypes;
@@ -29,7 +30,7 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
     @Override
     public boolean canStart() {
         if (guard.isRemoved() || !guard.isAlive()) return false;
-        if (guard.isCastingSpell() || guard.isEating()) return false;
+        if (guard.isSpellCastBusy() || guard.isEating()) return false;
         if (hasFoodInOffhand()) return false;
 
         float hpFrac = guard.getHealth() / guard.getMaxHealth();
@@ -41,7 +42,7 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
     @Override
     public boolean shouldContinue() {
         if (guard.isRemoved() || !guard.isAlive()) return false;
-        if (guard.isCastingSpell()) return false;
+        if (guard.isSpellCastBusy()) return false;
 
         float hpFrac = guard.getHealth() / guard.getMaxHealth();
         if (hpFrac >= RELEASE_HP_FRACTION) return false;
@@ -163,8 +164,8 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
         if (!guard.hasShield()) return;
 
         if (raise) {
-            if (guard.isCastingSpell()) {
-                guard.setCastingSpell(false);
+            if (guard.isSpellCastBusy()) {
+                return;
             }
 
             if (!guard.isUsingItem() || guard.getActiveHand() != Hand.OFF_HAND) {
@@ -200,9 +201,7 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
     }
 
     private boolean isHealer(GuardEntity g) {
-        return g.getSpellManager().hasHealingSpells()
-                || g.getSpellManager().hasSupportSpells()
-                || g.isHoldingHolyFocus();
+        return GuardCombatRole.isRetreatHealer(g);
     }
 
     private boolean hasFoodInOffhand() {

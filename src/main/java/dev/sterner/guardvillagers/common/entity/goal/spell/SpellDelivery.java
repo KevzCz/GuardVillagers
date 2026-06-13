@@ -1,8 +1,10 @@
 package dev.sterner.guardvillagers.common.entity.goal.spell;
 
 import dev.sterner.guardvillagers.*;
+import dev.sterner.guardvillagers.common.animation.GuardAnimationDurations;
 import dev.sterner.guardvillagers.common.debug.*;
 import dev.sterner.guardvillagers.common.entity.*;
+import dev.sterner.guardvillagers.mixin.accessor.LivingEntityAccessor;
 import net.minecraft.entity.*;
 import net.minecraft.entity.effect.*;
 import net.minecraft.registry.*;
@@ -13,14 +15,35 @@ import net.minecraft.util.math.*;
 import net.minecraft.world.*;
 import net.spell_engine.api.spell.*;
 import net.spell_engine.api.spell.event.*;
+import net.spell_engine.api.spell.fx.ParticleBatch;
+import net.spell_engine.fx.ParticleHelper;
 import net.spell_engine.internals.*;
 import net.spell_engine.internals.arrow.*;
+import net.spell_engine.internals.melee.Melee;
+import net.spell_engine.utils.TargetHelper;
 import net.spell_power.api.*;
+import net.minecraft.entity.mob.MobEntity;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 
 public class SpellDelivery {
 
+    private static boolean performImpacts(
+            World world,
+            LivingEntity caster,
+            Entity target,
+            Entity source,
+            RegistryEntry<Spell> entry,
+            List<Spell.Impact> impacts,
+            SpellHelper.ImpactContext ctx
+    ) {
+        boolean success = SpellHelper.performImpacts(world, caster, target, source, entry, impacts, ctx);
+        if (target instanceof GuardEntity guard) {
+            GuardSpellCooldowns.applyCooldownImpacts(guard, impacts);
+        }
+        return success;
+    }
 
     private static List<Spell.Impact> effectiveImpacts(LivingEntity caster, RegistryEntry<Spell> spellEntry) {
         if (caster instanceof GuardEntity guard) {
@@ -30,10 +53,312 @@ public class SpellDelivery {
     }
 
     private static float effectiveRange(LivingEntity caster, RegistryEntry<Spell> spellEntry) {
-        if (caster instanceof GuardEntity guard) {
-            return guard.getSpellManager().getAugmentedRange(spellEntry);
+        return SpellCombatTargeting.resolveBaseRange(caster, spellEntry);
+    }
+
+    public static void deliverSpell(SpellContext context, int channelOffset) {
+        Spell spell = context.spell();
+        World world = context.caster().getWorld();
+
+        if (spell.deliver != null && spell.deliver.delay > 0) {
+            if (context.caster() instanceof GuardEntity guard
+                    && GuardCastVisuals.holdsCastThroughDelivery(spell)) {
+                String holdAnim = GuardCastVisuals.resolveCastAnimationId(guard, spell);
+                if (holdAnim == null || holdAnim.isEmpty()) {
+                    holdAnim = guard.getCastAnimationId();
+                }
+                GuardCastVisuals.beginCastPoseHold(guard, holdAnim);
+            }
+            int delayTicks = spell.deliver.delay;
+            ((net.spell_engine.utils.WorldScheduler) world).schedule(delayTicks, () -> {
+                if (context.caster().isAlive()) {
+                    deliverSpellNow(refreshContextForDelivery(context), channelOffset);
+                }
+            });
+            return;
         }
-        return spellEntry.value().range;
+
+        deliverSpellNow(context, channelOffset);
+    }
+
+    private static void deliverSpellNow(SpellContext context, int channelOffset) {
+        context = withChannelContext(context, channelOffset);
+        orientCasterTowardTarget(context);
+
+        Spell spell = context.spell();
+        Spell.Delivery.Type deliveryType = GuardSpellTimings.effectiveDeliveryType(spell);
+
+        if (deliveryType == null) {
+            castDirect(context);
+            applyAreaImpactIfPresent(context);
+            sendReleaseFx(context);
+            triggerGuardReleaseVisuals(context);
+            return;
+        }
+
+        switch (deliveryType) {
+            case MELEE -> castMeleeDelivery(context);
+            case SHOOT_ARROW, PROJECTILE -> castProjectile(context, channelOffset);
+            case METEOR -> castMeteor(context);
+            case CLOUD -> castCloud(context);
+            case CUSTOM -> castCustom(context);
+            case DIRECT -> {
+                if (spell.target != null && spell.target.type == Spell.Target.Type.BEAM) {
+                    castBeam(context);
+                } else if (spell.target != null && spell.target.type == Spell.Target.Type.AREA) {
+                    castAreaDirect(context);
+                    context.caster().swingHand(Hand.MAIN_HAND, true);
+                    if (shouldPlayReleaseSound(context)) {
+                        GuardSpellSounds.playRelease(context.caster(), spell);
+                    }
+                } else {
+                    castDirect(context);
+                }
+            }
+            case AFFECT_ARROW -> castAffectArrow(context);
+            case STASH_EFFECT -> castStashEffect(context);
+            default -> castDirect(context);
+        }
+
+        applyAreaImpactIfPresent(context);
+        sendReleaseFx(context);
+        triggerGuardReleaseVisuals(context);
+    }
+
+    private static void triggerGuardReleaseVisuals(SpellContext context) {
+        if (!(context.caster() instanceof GuardEntity guard)) {
+            return;
+        }
+        Spell spell = context.spell();
+        if (!GuardCastVisuals.hasReleaseAnimation(spell)) {
+            return;
+        }
+        if (!GuardSpellTimings.isMeleeDelivery(spell)) {
+            GuardCastVisuals.beginReleasePhase(guard, spell);
+            return;
+        }
+
+        String releaseId = GuardCastVisuals.resolveReleaseAnimationId(guard, spell);
+        String meleeAnimId = primaryMeleeAttackAnimationId(guard, spell);
+        int deferTicks = meleeStrikeDeferTicks(spell);
+
+        
+        if (releaseId != null && releaseId.equals(meleeAnimId) && deferTicks > 0) {
+            GuardCastVisuals.scheduleAfterTicks(guard, deferTicks, () -> {
+                if (guard.isAlive()) {
+                    GuardCastVisuals.beginReleasePhase(guard, spell);
+                }
+            });
+            return;
+        }
+        
+        if (meleeAnimId != null && releaseId != null && !meleeAnimId.equals(releaseId)) {
+            GuardCastVisuals.beginReleasePhase(guard, spell);
+            return;
+        }
+        if (meleeAnimId != null) {
+            return;
+        }
+        GuardCastVisuals.beginReleasePhase(guard, spell);
+    }
+
+    @Nullable
+    private static String primaryMeleeAttackAnimationId(GuardEntity guard, Spell spell) {
+        if (spell.deliver == null || spell.deliver.melee == null
+                || spell.deliver.melee.attacks == null || spell.deliver.melee.attacks.isEmpty()) {
+            return null;
+        }
+        Spell.Delivery.Melee.Attack attack = spell.deliver.melee.attacks.getFirst();
+        if (attack.animation == null) {
+            return null;
+        }
+        return GuardCastVisuals.resolveAnimationId(guard, attack.animation);
+    }
+
+    private static int meleeStrikeDeferTicks(Spell spell) {
+        if (spell.deliver == null || spell.deliver.melee == null
+                || spell.deliver.melee.attacks == null || spell.deliver.melee.attacks.isEmpty()) {
+            return 0;
+        }
+        Spell.Delivery.Melee.Attack attack = spell.deliver.melee.attacks.getFirst();
+        return Math.max(0, (int) (attack.delay * 20));
+    }
+
+    private static void orientCasterTowardTarget(SpellContext context) {
+        if (context.target() == null || !context.target().isAlive()) {
+            return;
+        }
+        LivingEntity caster = context.caster();
+        float yaw = GuardMeleeTargeting.resolveStrikeYaw(caster, context.target());
+        caster.setYaw(yaw);
+        caster.setBodyYaw(yaw);
+        caster.setHeadYaw(yaw);
+    }
+
+    private static float meleeAttackRange(LivingEntity caster, RegistryEntry<Spell> spellEntry) {
+        float range = effectiveRange(caster, spellEntry);
+        if (range > 0) {
+            return range;
+        }
+        return 3.0f;
+    }
+
+    public static void sendReleaseFx(SpellContext context) {
+        if (context.caster().getWorld().isClient()) {
+            return;
+        }
+        Spell spell = context.spell();
+        if (spell.release == null) {
+            return;
+        }
+        LivingEntity caster = context.caster();
+
+        ParticleBatch[] releaseParticles = SpellParticleHelper.sanitize(spell.release.particles);
+        if (!SpellParticleHelper.isEmpty(releaseParticles)) {
+            ParticleHelper.sendBatches(caster, releaseParticles);
+        }
+        ParticleBatch[] scaledSource = SpellParticleHelper.sanitize(spell.release.particles_scaled_with_ranged);
+        if (!SpellParticleHelper.isEmpty(scaledSource)) {
+            float range = meleeAttackRange(caster, context.entry());
+            ParticleBatch[] scaled = new ParticleBatch[scaledSource.length];
+            for (int i = 0; i < scaled.length; i++) {
+                scaled[i] = scaledSource[i].copy().scale(range);
+            }
+            ParticleHelper.sendBatches(caster, scaled);
+        }
+        if (shouldPlayReleaseSound(context)) {
+            GuardSpellSounds.playRelease(caster, spell);
+        }
+    }
+
+    private static SpellContext refreshContextForDelivery(SpellContext context) {
+        LivingEntity caster = context.caster();
+        LivingEntity target = context.target();
+        if (caster instanceof GuardEntity guard) {
+            LivingEntity liveTarget = guard.getTarget();
+            if (liveTarget != null && liveTarget.isAlive()) {
+                target = liveTarget;
+            }
+        }
+        SpellHelper.ImpactContext base = context.impactContext();
+        Vec3d pos = resolveImpactPosition(context);
+        SpellHelper.ImpactContext refreshed = new SpellHelper.ImpactContext(
+                base.channel(),
+                base.distance(),
+                pos,
+                base.power(),
+                base.focusMode(),
+                base.channelTickIndex()
+        );
+        return new SpellContext(
+                context.spellId(),
+                context.entry(),
+                context.spell(),
+                caster,
+                target,
+                refreshed
+        );
+    }
+
+    private static SpellContext withChannelContext(SpellContext context, int channelTickIndex) {
+        Spell spell = context.spell();
+        SpellHelper.ImpactContext base = context.impactContext();
+        float channelMult = 1f;
+        if (SpellHelper.isChanneled(spell) && channelTickIndex >= 0) {
+            channelMult = SpellHelper.channelValueMultiplier(spell);
+        }
+        SpellHelper.ImpactContext updated = new SpellHelper.ImpactContext(
+                channelMult,
+                base.distance(),
+                base.position(),
+                base.power(),
+                base.focusMode(),
+                channelTickIndex
+        );
+        return new SpellContext(
+                context.spellId(),
+                context.entry(),
+                context.spell(),
+                context.caster(),
+                context.target(),
+                updated
+        );
+    }
+
+    private static Vec3d resolveImpactPosition(SpellContext context) {
+        LivingEntity caster = context.caster();
+        Spell spell = context.spell();
+        Vec3d pos = caster.getPos();
+
+        if (spell.target != null && spell.target.type == Spell.Target.Type.AIM && spell.target.aim != null) {
+            Vec3d aimPoint = context.target() != null
+                    ? context.target().getPos().add(0, context.target().getHeight() * 0.5, 0)
+                    : caster.getEyePos();
+            if (spell.target.aim.reposition_vertically != 0) {
+                Vec3d grounded = TargetHelper.findSolidBelow(
+                        caster, aimPoint, caster.getWorld(), spell.target.aim.reposition_vertically);
+                if (grounded != null) {
+                    return grounded;
+                }
+            }
+            return aimPoint;
+        }
+
+        if (context.impactContext().position() != null) {
+            return context.impactContext().position();
+        }
+        return pos;
+    }
+
+    private static void applyAreaImpactIfPresent(SpellContext context) {
+        Spell spell = context.spell();
+        if (spell.area_impact == null) {
+            return;
+        }
+
+        LivingEntity caster = context.caster();
+        World world = caster.getWorld();
+        Vec3d impactPos = resolveImpactPosition(context);
+
+        Entity exclude = context.target();
+
+        SpellHelper.ImpactContext areaContext = context.impactContext().position(impactPos);
+
+        boolean success = SpellHelper.lookupAndPerformAreaImpact(
+                spell.area_impact,
+                context.entry(),
+                caster,
+                exclude,
+                caster,
+                context.getImpacts(),
+                areaContext,
+                false
+        );
+
+        if (success && exclude instanceof LivingEntity livingTarget) {
+            triggerPassiveSpells(caster, livingTarget, context.entry(), false);
+            triggerStashedEffects(caster, livingTarget, context.entry());
+        }
+
+        if (caster instanceof GuardEntity guard && !world.isClient() && success) {
+            float radius = spell.area_impact.combinedRadius(context.impactContext().power().baseValue());
+            List<Entity> areaTargets = TargetHelper.targetsFromArea(
+                    world,
+                    caster,
+                    impactPos,
+                    caster.getRotationVector(),
+                    radius,
+                    spell.area_impact.area,
+                    SpellCombatTargeting.combatFilter(caster)
+            );
+            if (exclude != null) {
+                areaTargets.remove(exclude);
+            }
+            GuardDebugManager.broadcast(guard,
+                    "💥 Area impact: " + context.spellId().getPath()
+                            + " → " + areaTargets.size() + " target(s), r=" + String.format("%.1f", radius),
+                    Formatting.GREEN);
+        }
     }
 
     public static void castProjectile(SpellContext context, int channelOffset) {
@@ -54,13 +379,7 @@ public class SpellDelivery {
             logCast(context, "SHOOT_ARROW");
 
             try {
-                ArrowHelper.shootArrow(
-                        context.caster().getWorld(),
-                        context.caster(),
-                        context.entry(),
-                        context.impactContext(),
-                        channelOffset
-                );
+                GuardSpellArrowDelivery.shoot(context, channelOffset);
             } catch (Exception e) {
                 logError(context, "SHOOT_ARROW", "Failed to shoot arrow: " + e.getMessage() + " - falling back to direct cast");
                 castDirect(context);
@@ -73,6 +392,7 @@ public class SpellDelivery {
                 return;
             }
             logCast(context, "PROJECTILE");
+            orientCasterTowardTarget(context);
 
             try {
                 SpellHelper.shootProjectile(
@@ -114,6 +434,7 @@ public class SpellDelivery {
         }
 
         logCast(context, "METEOR");
+        orientCasterTowardTarget(context);
 
         Vec3d targetPos = context.target() != null ? context.target().getPos() : context.caster().getPos();
 
@@ -165,46 +486,22 @@ public class SpellDelivery {
             return;
         }
 
-        if (spell.target.beam == null) {
-            logError(context, "BEAM", "Missing beam configuration in spell target data");
-            castDirect(context);
-            return;
-        }
-
         logCast(context, "BEAM");
 
         LivingEntity caster = context.caster();
-        float effectiveBeamRange = effectiveRange(caster, context.entry());
-        double range = effectiveBeamRange > 0 ? effectiveBeamRange : 32.0;
+        World world = caster.getWorld();
+        float range = SpellCombatTargeting.scaledRange(
+                caster, context.entry(), SpellCombatTargeting.DEFAULT_BEAM_RANGE);
 
-        List<net.minecraft.entity.Entity> entities = net.spell_engine.utils.TargetHelper.targetsFromRaycast(
-                caster,
-                (float) range,
-                (entity) -> entity != caster
-                        && entity.isAlive()
-                        && caster.canSee(entity)
-        );
+        List<Entity> entities = TargetHelper.targetsFromRaycast(
+                caster, range, SpellCombatTargeting.combatFilter(caster));
 
-        for (net.minecraft.entity.Entity entity : entities) {
-            if (!(entity instanceof LivingEntity target)) continue;
+        int hits = SpellCombatTargeting.deliverImpacts(
+                context, entities, null, SpellCombatTargeting.casterCenter(caster), 0);
 
-            Vec3d impactPos = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
-            SpellHelper.ImpactContext beamContext = context.impactContext().position(impactPos);
-
-            boolean success = SpellHelper.performImpacts(
-                    caster.getWorld(),
-                    caster,
-                    target,
-                    target,
-                    context.entry(),
-                    context.getImpacts(),
-                    beamContext
-            );
-
-            if (success) {
-                triggerPassiveSpells(caster, target, context.entry(), false);
-                triggerStashedEffects(caster, target, context.entry());
-            }
+        if (caster instanceof GuardEntity guard) {
+            SpellCombatTargeting.broadcastHitSummary(
+                    guard, world, context.spellId().getPath(), "beam", hits, entities.size(), range);
         }
     }
 
@@ -219,6 +516,14 @@ public class SpellDelivery {
         if (spell.target != null && spell.target.type == Spell.Target.Type.AREA) {
             logCast(context, "AREA_DIRECT");
             castAreaDirect(context);
+        } else if (spell.target != null && (spell.target.type == Spell.Target.Type.AIM
+                || spell.target.type == Spell.Target.Type.CASTER)) {
+            logCast(context, spell.target.type.name());
+            if (hasAssignedSupportTarget(spell, context)) {
+                castSingleDirect(context);
+            } else {
+                castResolvedDirect(context);
+            }
         } else {
             boolean hasSelfTargetImpact = hasSelfTargetingImpact(spell);
             String type = hasSelfTargetImpact ? "SELF_DIRECT" : "DIRECT";
@@ -231,8 +536,55 @@ public class SpellDelivery {
             }
         }
 
-        context.caster().swingHand(Hand.MAIN_HAND, true);
-        playReleaseSound(context);
+        LivingEntity caster = context.caster();
+        if (!(caster instanceof GuardEntity guard && guard.shouldSuppressVanillaSpellSwing())) {
+            caster.swingHand(Hand.MAIN_HAND, true);
+        }
+        if (shouldPlayReleaseSound(context)) {
+            GuardSpellSounds.playRelease(context.caster(), spell);
+        }
+    }
+
+    private static void playReleaseSound(SpellContext context) {
+        if (shouldPlayReleaseSound(context)) {
+            GuardSpellSounds.playRelease(context.caster(), context.spell());
+        }
+    }
+
+    private static boolean shouldPlayReleaseSound(SpellContext context) {
+        Spell spell = context.spell();
+        if (!SpellHelper.isChanneled(spell)
+                || spell.active == null
+                || spell.active.cast == null
+                || spell.active.cast.channel_ticks <= 0) {
+            return true;
+        }
+        int channelIndex = context.impactContext().channelTickIndex();
+        return channelIndex >= spell.active.cast.channel_ticks - 1;
+    }
+
+    private static boolean hasAssignedSupportTarget(Spell spell, SpellContext context) {
+        LivingEntity assigned = context.target();
+        if (assigned == null || !assigned.isAlive()) {
+            return false;
+        }
+        if (spell.impacts == null || spell.impacts.isEmpty()) {
+            return false;
+        }
+        boolean hasHeal = false;
+        boolean hasDamage = false;
+        for (Spell.Impact impact : spell.impacts) {
+            if (impact.action == null) {
+                continue;
+            }
+            if (impact.action.type == Spell.Impact.Action.Type.HEAL) {
+                hasHeal = true;
+            }
+            if (impact.action.type == Spell.Impact.Action.Type.DAMAGE) {
+                hasDamage = true;
+            }
+        }
+        return hasHeal || !hasDamage;
     }
 
     private static boolean hasSelfTargetingImpact(Spell spell) {
@@ -254,6 +606,10 @@ public class SpellDelivery {
                 hasSelfTargetImpact = true;
             }
 
+            if (impact.action.type == Spell.Impact.Action.Type.SPAWN) {
+                hasSelfTargetImpact = true;
+            }
+
             if (impact.action.type == Spell.Impact.Action.Type.HEAL && !impact.action.apply_to_caster) {
                 hasSelfTargetImpact = true;
             }
@@ -267,7 +623,7 @@ public class SpellDelivery {
     }
 
     private static void castSelfDirect(SpellContext context) {
-        boolean success = SpellHelper.performImpacts(
+        boolean success = performImpacts(
                 context.caster().getWorld(),
                 context.caster(),
                 context.caster(),
@@ -278,69 +634,152 @@ public class SpellDelivery {
         );
 
         if (success) {
+            registerFreshSpellSummons(context);
             triggerPassiveSpells(context.caster(), context.caster(), context.entry(), false);
             triggerStashedEffects(context.caster(), context.caster(), context.entry());
         }
     }
 
-    private static void castAreaDirect(SpellContext context) {
-        Spell spell = context.spell();
-
-        double radius;
-        boolean isMeleeArchetype = spell.school != null && 
-                spell.school.archetype == net.spell_power.api.SpellSchool.Archetype.MELEE;
-
-        float effectiveSpellRange = effectiveRange(context.caster(), context.entry());
-        if (effectiveSpellRange > 0) {
-            radius = effectiveSpellRange;
-        } else if (isMeleeArchetype) {
-
-            radius = 3.0;
-        } else {
-            radius = 12.0;
+    private static void registerFreshSpellSummons(SpellContext context) {
+        if (!(context.caster() instanceof GuardEntity guard) || guard.getWorld().isClient()) {
+            return;
         }
-        
-        LivingEntity caster = context.caster();
-        boolean requireLineOfSight = !isMeleeArchetype;
+        if (!hasSpawnImpacts(context.spell())) {
+            return;
+        }
 
-        List<LivingEntity> targets = caster.getWorld().getEntitiesByClass(
-                LivingEntity.class,
-                caster.getBoundingBox().expand(radius),
-                e -> {
-                    if (e == caster || !e.isAlive()) return false;
-                    
-                    if (caster instanceof GuardEntity guard) {
-                        if (e instanceof net.minecraft.entity.passive.VillagerEntity) return false;
-                        if (e instanceof GuardEntity) return false;
-                        if (e instanceof net.minecraft.entity.passive.IronGolemEntity) return false;
-                        if (e == guard.getOwner()) return false;
-                        if (!guard.canTarget(e)) return false;
-                    }
-                    
-                    return !requireLineOfSight || caster.canSee(e);
-                }
-        );
+        java.util.Set<Identifier> spawnTypes = collectSpawnEntityTypes(context.spell());
+        if (spawnTypes.isEmpty()) {
+            return;
+        }
 
-        for (LivingEntity target : targets) {
-            boolean success = SpellHelper.performImpacts(
-                    context.caster().getWorld(),
-                    context.caster(),
-                    target,
-                    context.caster(),
-                    context.entry(),
-                    context.getImpacts(),
-                    context.impactContext()
-            );
-
-            if (success) {
-                triggerPassiveSpells(context.caster(), target, context.entry(), false);
-                triggerStashedEffects(context.caster(), target, context.entry());
+        net.minecraft.util.math.Box box = guard.getBoundingBox().expand(6.0);
+        for (LivingEntity entity : guard.getWorld().getEntitiesByClass(
+                LivingEntity.class, box, candidate -> candidate != guard && candidate.age <= 3)) {
+            Identifier typeId = net.minecraft.registry.Registries.ENTITY_TYPE.getId(entity.getType());
+            if (spawnTypes.contains(typeId)) {
+                guard.registerSpellSummon(entity);
             }
         }
     }
 
+    private static boolean hasSpawnImpacts(Spell spell) {
+        if (spell.impacts == null) {
+            return false;
+        }
+        for (Spell.Impact impact : spell.impacts) {
+            if (impact.action != null && impact.action.type == Spell.Impact.Action.Type.SPAWN) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static java.util.Set<Identifier> collectSpawnEntityTypes(Spell spell) {
+        java.util.Set<Identifier> types = new java.util.HashSet<>();
+        if (spell.impacts == null) {
+            return types;
+        }
+        for (Spell.Impact impact : spell.impacts) {
+            if (impact.action == null || impact.action.type != Spell.Impact.Action.Type.SPAWN
+                    || impact.action.spawns == null) {
+                continue;
+            }
+            for (Spell.Impact.Action.Spawn spawn : impact.action.spawns) {
+                if (spawn.entity_type_id != null) {
+                    Identifier id = Identifier.tryParse(spawn.entity_type_id);
+                    if (id != null) {
+                        types.add(id);
+                    }
+                }
+            }
+        }
+        return types;
+    }
+
+    private static void castAreaDirect(SpellContext context) {
+        Spell spell = context.spell();
+        LivingEntity caster = context.caster();
+        World world = caster.getWorld();
+
+        // For melee-mechanic spells on guards, spell.range is the effect AoE angle radius, not a search distance.
+        // Use meleeAttackRange (≥3.0) so the area search actually finds nearby enemies.
+        float range = (caster instanceof GuardEntity && spell.range_mechanic == Spell.RangeMechanic.MELEE)
+                ? meleeAttackRange(caster, context.entry()) * caster.getScale()
+                : SpellCombatTargeting.scaledRange(caster, context.entry(), meleeAttackRange(caster, context.entry()));
+        Spell.Target.Area area = SpellCombatTargeting.targetArea(spell);
+        Vec3d casterPos = SpellCombatTargeting.casterCenter(caster);
+
+        List<Entity> entities;
+        if (caster instanceof GuardEntity && spell.range_mechanic == Spell.RangeMechanic.MELEE) {
+            float strikeYaw = GuardMeleeTargeting.resolveStrikeYaw(caster, context.target());
+            List<LivingEntity> meleeTargets = GuardMeleeTargeting.findTargets(
+                    caster, context.target(), null, range, strikeYaw, caster.getPitch());
+            entities = new java.util.ArrayList<>(meleeTargets);
+        } else {
+            entities = SpellCombatTargeting.resolveSpellTargets(context);
+        }
+
+        int hits = SpellCombatTargeting.deliverImpacts(
+                context, entities, area, casterPos, range * range);
+
+        if (caster instanceof GuardEntity guard) {
+            SpellCombatTargeting.broadcastHitSummary(
+                    guard, world, context.spellId().getPath(), "area", hits, entities.size(), range);
+        }
+    }
+
+    private static void castResolvedDirect(SpellContext context) {
+        LivingEntity caster = context.caster();
+        World world = caster.getWorld();
+        List<Entity> entities = SpellCombatTargeting.resolveSpellTargets(context);
+
+        if (entities.isEmpty()) {
+            castSelfDirect(context);
+            return;
+        }
+
+        Vec3d center = SpellCombatTargeting.casterCenter(caster);
+        int hits = 0;
+        for (Entity entity : entities) {
+            if (!(entity instanceof LivingEntity target)) {
+                continue;
+            }
+            SpellHelper.ImpactContext impactCtx = context.impactContext()
+                    .position(SpellCombatTargeting.impactPosition(target, center));
+            if (performImpacts(
+                    world,
+                    caster,
+                    target,
+                    target,
+                    context.entry(),
+                    context.getImpacts(),
+                    impactCtx
+            )) {
+                hits++;
+                triggerImpactFollowUps(caster, target, context);
+            }
+        }
+
+        if (caster instanceof GuardEntity guard) {
+            float range = SpellCombatTargeting.scaledRange(
+                    caster, context.entry(), meleeAttackRange(caster, context.entry()));
+            SpellCombatTargeting.broadcastHitSummary(
+                    guard, world, context.spellId().getPath(), "direct", hits, entities.size(), range);
+        }
+    }
+
+    static void triggerImpactFollowUps(LivingEntity caster, LivingEntity target, SpellContext context) {
+        triggerStashedEffects(caster, target, context.entry());
+        if (caster instanceof GuardEntity guard
+                && target != caster
+                && guard.canTarget(target)) {
+            triggerPassiveSpells(caster, target, context.entry(), false);
+        }
+    }
+
     private static void castSingleDirect(SpellContext context) {
-        boolean success = SpellHelper.performImpacts(
+        boolean success = performImpacts(
                 context.caster().getWorld(),
                 context.caster(),
                 context.target(),
@@ -363,7 +802,7 @@ public class SpellDelivery {
 
         List<Spell.Impact> selfCastImpacts = context.getImpacts();
         if (selfCastImpacts != null && !selfCastImpacts.isEmpty()) {
-            boolean success = SpellHelper.performImpacts(
+            boolean success = performImpacts(
                     context.caster().getWorld(),
                     context.caster(),
                     context.caster(),
@@ -452,7 +891,7 @@ public class SpellDelivery {
                 .power(context.impactContext().power())
                 .position(position);
 
-        boolean success = SpellHelper.performImpacts(
+        boolean success = performImpacts(
                 context.caster().getWorld(),
                 context.caster(),
                 context.caster(),
@@ -490,7 +929,7 @@ public class SpellDelivery {
 
         for (LivingEntity target : targets) {
             try {
-                boolean success = SpellHelper.performImpacts(
+                boolean success = performImpacts(
                         context.caster().getWorld(),
                         context.caster(),
                         target,
@@ -542,7 +981,7 @@ public class SpellDelivery {
 
         logCast(context, "AFFECT_ARROW");
 
-        boolean success = SpellHelper.performImpacts(
+        boolean success = performImpacts(
                 context.caster().getWorld(),
                 context.caster(),
                 context.caster(),
@@ -636,6 +1075,11 @@ public class SpellDelivery {
                     if (handler != null && caster instanceof net.minecraft.entity.player.PlayerEntity player) {
                         delivered = handler.onSpellDelivery(world, spellEntry, player, targets, context, targetLocation);
                     } else {
+                        if (handler != null && caster instanceof GuardEntity guard) {
+                            GuardDebugManager.broadcast(guard,
+                                    "CUSTOM handler '" + spell.deliver.custom.handler + "' is player-only; using impact fallback",
+                                    Formatting.YELLOW);
+                        }
                         delivered = performCustomImpactsForNonPlayer(
                                 world,
                                 caster,
@@ -658,7 +1102,7 @@ public class SpellDelivery {
 
                     SpellHelper.ImpactContext targetContext = targeted.context().position(position);
 
-                    boolean result = SpellHelper.performImpacts(
+                    boolean result = performImpacts(
                             world,
                             caster,
                             target,
@@ -736,7 +1180,7 @@ public class SpellDelivery {
 
             SpellHelper.ImpactContext targetContext = targeted.context().position(position);
 
-            boolean success = SpellHelper.performImpacts(
+            boolean success = performImpacts(
                     world,
                     caster,
                     target,
@@ -779,6 +1223,13 @@ public class SpellDelivery {
 
             var spellRegistry = net.spell_engine.api.spell.registry.SpellRegistry.from(caster.getWorld());
             for (var stashSpellEntry : spellRegistry.streamEntries().toList()) {
+                Identifier stashSpellId = stashSpellEntry.getKey()
+                        .map(key -> key.getValue())
+                        .orElse(null);
+                if (stashSpellId == null || !guard.getSpellManager().knowsSpell(stashSpellId)) {
+                    continue;
+                }
+
                 Spell stashSpell = stashSpellEntry.value();
 
                 if (stashSpell.deliver != null &&
@@ -820,7 +1271,7 @@ public class SpellDelivery {
                                                 .power(SpellPower.getSpellPower(stashSpell.school, caster))
                                                 .position(impactPosition);
 
-                                        SpellHelper.performImpacts(
+                                        performImpacts(
                                                 caster.getWorld(),
                                                 caster,
                                                 target,
@@ -841,6 +1292,9 @@ public class SpellDelivery {
 
     private static void triggerPassiveSpells(LivingEntity caster, Entity target, RegistryEntry<Spell> spellEntry, boolean critical) {
         if (!(caster instanceof GuardEntity guard)) {
+            return;
+        }
+        if (target instanceof LivingEntity living && living != caster && !guard.canTarget(living)) {
             return;
         }
 
@@ -894,7 +1348,6 @@ public class SpellDelivery {
             }
         }
     }
-
 
     private static boolean doesTriggerMatch(Spell.Trigger trigger, Spell triggeredSpell, Identifier triggeredSpellId, boolean critical) {
         if (trigger.spell != null && trigger.spell.id != null && !trigger.spell.id.isEmpty()) {
@@ -951,88 +1404,438 @@ public class SpellDelivery {
         return true;
     }
 
+    private static Vec3d passiveImpactPosition(GuardEntity guard, @Nullable Entity target) {
+        if (target instanceof LivingEntity living) {
+            return SpellCombatTargeting.impactPosition(
+                    living, SpellCombatTargeting.casterCenter(guard));
+        }
+        if (target != null) {
+            return target.getPos();
+        }
+        return SpellCombatTargeting.casterCenter(guard);
+    }
+
     private static void executePassiveSpell(GuardEntity guard, Entity target, GuardSpellManager.CategorizedSpell passive, Spell passiveSpell) {
+        Vec3d impactPos = passiveImpactPosition(guard, target);
         SpellHelper.ImpactContext passiveContext = new SpellHelper.ImpactContext()
-                .power(SpellPower.getSpellPower(passiveSpell.school, guard));
+                .power(guard.getSpellManager().getAugmentedPower(passive.entry()))
+                .position(impactPos);
 
-        if (passiveSpell.deliver != null && passiveSpell.deliver.type == Spell.Delivery.Type.CLOUD) {
-            Vec3d targetPos = target.getPos();
-            passiveContext = passiveContext.position(targetPos);
+        if (!guard.getWorld().isClient()) {
+            String deliverLabel = passiveSpell.deliver != null
+                    ? passiveSpell.deliver.type.name()
+                    : "direct";
+            GuardDebugManager.broadcast(guard,
+                    "  ⚡ Passive " + passive.spellId().getPath() + " → " + deliverLabel,
+                    Formatting.YELLOW);
+        }
 
-            if (!guard.getWorld().isClient()) {
-                GuardDebugManager.broadcast(guard,
-                        "  ☁️ Spawning cloud at target position",
-                        Formatting.AQUA);
-            }
-
-            SpellHelper.placeCloud(
-                    guard.getWorld(),
-                    guard,
-                    target,
-                    targetPos,
-                    passive.entry(),
-                    passiveContext
-            );
+        if (passiveSpell.deliver != null) {
+            executePassiveDelivery(guard, target, passive, passiveSpell, passiveContext, impactPos);
             return;
         }
 
-        if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.AREA) {
-            Vec3d center = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
-            passiveContext = passiveContext.position(center);
+        deliverPassiveImpacts(guard, target, passive, passiveSpell, passiveContext);
+    }
 
-            float effectivePassiveRange = guard.getSpellManager().getAugmentedRange(passive.entry());
-            double radius = effectivePassiveRange > 0 ? effectivePassiveRange : 12.0;
-
-            List<LivingEntity> areaTargets = guard.getWorld().getEntitiesByClass(
-                    LivingEntity.class,
-                    target.getBoundingBox().expand(radius),
-                    e -> e != guard && e.isAlive() && guard.canSee(e)
+    private static void executePassiveDelivery(
+            GuardEntity guard,
+            Entity target,
+            GuardSpellManager.CategorizedSpell passive,
+            Spell passiveSpell,
+            SpellHelper.ImpactContext passiveContext,
+            Vec3d impactPos
+    ) {
+        if (passiveSpell.deliver.type == Spell.Delivery.Type.STASH_EFFECT) {
+            SpellContext stashContext = new SpellContext(
+                    passive.spellId(),
+                    passive.entry(),
+                    passiveSpell,
+                    guard,
+                    guard,
+                    passiveContext
             );
+            castStashEffect(stashContext);
+            return;
+        }
 
-            if (!guard.getWorld().isClient()) {
-                GuardDebugManager.broadcast(guard,
-                        "  🎯 Area targeting: found " + areaTargets.size() + " targets in radius " + radius,
-                        Formatting.GRAY);
-            }
+        List<SpellHelper.DeliveryTarget> deliveryTargets = buildPassiveDeliveryTargets(
+                guard, target, passive, passiveSpell, passiveContext);
+        Vec3d triggerLocation = passiveSpell.target != null
+                && passiveSpell.target.type == Spell.Target.Type.FROM_TRIGGER
+                ? impactPos
+                : null;
 
-            for (LivingEntity areaTarget : areaTargets) {
-                boolean success = SpellHelper.performImpacts(
-                        guard.getWorld(),
+        boolean delivered = deliverForLivingEntity(
+                guard.getWorld(),
+                passive.entry(),
+                guard,
+                deliveryTargets,
+                passiveContext,
+                triggerLocation,
+                passiveSpell
+        );
+
+        if (!delivered) {
+            deliverPassiveImpacts(guard, target, passive, passiveSpell, passiveContext);
+        }
+    }
+
+    private static List<SpellHelper.DeliveryTarget> buildPassiveDeliveryTargets(
+            GuardEntity guard,
+            Entity target,
+            GuardSpellManager.CategorizedSpell passive,
+            Spell passiveSpell,
+            SpellHelper.ImpactContext passiveContext
+    ) {
+        if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.AREA) {
+            SpellContext areaContext = new SpellContext(
+                    passive.spellId(),
+                    passive.entry(),
+                    passiveSpell,
+                    guard,
+                    target instanceof LivingEntity living ? living : null,
+                    passiveContext
+            );
+            return SpellCombatTargeting.resolveSpellTargets(areaContext).stream()
+                    .map(entity -> new SpellHelper.DeliveryTarget(entity, passiveContext))
+                    .toList();
+        }
+
+        if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.CASTER) {
+            return List.of(new SpellHelper.DeliveryTarget(guard, passiveContext));
+        }
+
+        if (target != null) {
+            return List.of(new SpellHelper.DeliveryTarget(target, passiveContext));
+        }
+
+        return List.of();
+    }
+
+    private static void deliverPassiveImpacts(
+            GuardEntity guard,
+            Entity target,
+            GuardSpellManager.CategorizedSpell passive,
+            Spell passiveSpell,
+            SpellHelper.ImpactContext passiveContext
+    ) {
+        World world = guard.getWorld();
+        Vec3d casterCenter = SpellCombatTargeting.casterCenter(guard);
+        List<Spell.Impact> impacts = guard.getSpellManager().getAugmentedImpacts(passive.entry());
+
+        if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.AREA) {
+            SpellContext areaContext = new SpellContext(
+                    passive.spellId(),
+                    passive.entry(),
+                    passiveSpell,
+                    guard,
+                    target instanceof LivingEntity living ? living : null,
+                    passiveContext
+            );
+            for (Entity entity : SpellCombatTargeting.resolveSpellTargets(areaContext)) {
+                if (!(entity instanceof LivingEntity living)) {
+                    continue;
+                }
+                Vec3d pos = SpellCombatTargeting.impactPosition(living, casterCenter);
+                performImpacts(
+                        world,
                         guard,
-                        areaTarget,
+                        living,
                         guard,
                         passive.entry(),
-                        guard.getSpellManager().getAugmentedImpacts(passive.entry()),
-                        passiveContext
+                        impacts,
+                        passiveContext.position(pos)
                 );
-
-                if (!guard.getWorld().isClient() && success) {
-                    GuardDebugManager.broadcast(guard,
-                            "    ✓ Hit: " + areaTarget.getName().getString(),
-                            Formatting.GREEN);
-                }
             }
             return;
         }
 
         if (target instanceof LivingEntity livingTarget) {
-            SpellHelper.performImpacts(
-                    guard.getWorld(),
+            performImpacts(
+                    world,
                     guard,
                     livingTarget,
                     guard,
                     passive.entry(),
-                    guard.getSpellManager().getAugmentedImpacts(passive.entry()),
+                    impacts,
                     passiveContext
             );
         }
     }
 
+    public static void castMeleeDelivery(SpellContext context) {
+        Spell spell = context.spell();
+        LivingEntity caster = context.caster();
+        World world = caster.getWorld();
+
+        if (caster instanceof GuardEntity guard && GuardCastVisuals.holdsCastThroughMeleeStrike(spell)) {
+            String holdAnim = GuardCastVisuals.resolveCastAnimationId(guard, spell);
+            if (holdAnim == null || holdAnim.isEmpty()) {
+                holdAnim = guard.getCastAnimationId();
+            }
+            GuardCastVisuals.beginCastPoseHold(guard, holdAnim);
+        }
+
+        if (spell.deliver == null || spell.deliver.melee == null
+                || spell.deliver.melee.attacks == null || spell.deliver.melee.attacks.isEmpty()) {
+            logError(context, "MELEE", "Missing melee attack list – falling back to castDirect");
+            castDirect(context);
+            return;
+        }
+
+        logCast(context, "MELEE");
+
+        List<Spell.Delivery.Melee.Attack> attacks = spell.deliver.melee.attacks;
+        boolean channeled = SpellHelper.isChanneled(spell) && context.impactContext().isChanneled();
+        if (channeled) {
+            int index = Math.floorMod(context.impactContext().channelTickIndex(), attacks.size());
+            attacks = List.of(attacks.get(index));
+        }
+
+        Set<LivingEntity> alreadyHit = Collections.synchronizedSet(new HashSet<>());
+
+        if (!channeled && attacks.size() > 1) {
+            scheduleChainedMeleeAttacks(context, attacks, world);
+            return;
+        }
+
+        for (Spell.Delivery.Melee.Attack attack : attacks) {
+            scheduleMeleeAttack(context, attack, alreadyHit, world, Math.max(0, (int) (attack.delay * 20)));
+        }
+    }
+
+    private static void scheduleChainedMeleeAttacks(SpellContext context,
+                                                    List<Spell.Delivery.Melee.Attack> attacks,
+                                                    World world) {
+        int scheduleAt = 0;
+        for (Spell.Delivery.Melee.Attack attack : attacks) {
+            scheduleAt += Math.max(0, (int) (attack.delay * 20));
+            Set<LivingEntity> attackHits = Collections.synchronizedSet(new HashSet<>());
+            scheduleMeleeAttack(context, attack, attackHits, world, scheduleAt);
+        }
+    }
+
+    private static void scheduleMeleeAttack(SpellContext context,
+                                            Spell.Delivery.Melee.Attack attack,
+                                            Set<LivingEntity> alreadyHit,
+                                            World world,
+                                            int primaryDelayTicks) {
+        LivingEntity caster = context.caster();
+
+        if (attack.particles != null && attack.particles.length > 0) {
+            if (primaryDelayTicks <= 0) {
+                ParticleHelper.sendBatches(caster, attack.particles);
+            } else {
+                ((net.spell_engine.utils.WorldScheduler) world).schedule(primaryDelayTicks,
+                        () -> ParticleHelper.sendBatches(caster, attack.particles));
+            }
+        }
+
+        Runnable primaryStrike = () -> executeMeleeAttack(
+                refreshContextForDelivery(context), attack, alreadyHit, world, true);
+
+            if (primaryDelayTicks <= 0) {
+                primaryStrike.run();
+            } else {
+                ((net.spell_engine.utils.WorldScheduler) world).schedule(primaryDelayTicks, primaryStrike);
+            }
+
+            if (attack.additional_strikes > 0) {
+                float additionalStrikeDelay = attack.additional_strike_delay > 0
+                        ? attack.additional_strike_delay : 0.1f;
+                for (int i = 1; i <= attack.additional_strikes; i++) {
+                    final int strikeNum = i;
+                    int extraDelayTicks = primaryDelayTicks + (int) (strikeNum * additionalStrikeDelay * 20);
+                    ((net.spell_engine.utils.WorldScheduler) world).schedule(extraDelayTicks, () -> {
+                        if (caster.isAlive()) {
+                        executeMeleeAttack(refreshContextForDelivery(context), attack, alreadyHit, world, false);
+                        }
+                    });
+                }
+            }
+        }
+
+    private static Melee.Attack toMeleeAttack(SpellContext context, Spell.Delivery.Melee.Attack attack) {
+        float range = meleeAttackRange(context.caster(), context.entry());
+
+        String attackId = attack.id != null ? attack.id : "";
+        return new Melee.Attack(
+                attack.duration,
+                Math.max(0, (int) (attack.delay * 20)),
+                attack.additional_strikes,
+                Math.max(1, (int) (attack.additional_strike_delay * 20)),
+                attack.additional_hits_on_same_target,
+                attack.attack_speed_multiplier > 0 ? attack.attack_speed_multiplier : 1.0f,
+                attack.forward_momentum,
+                attack.allow_momentum_airborne,
+                attack.movement_speed,
+                attack.movement_slipperiness,
+                range,
+                attack.hitbox,
+                attack.animation,
+                Melee.AttackContext.of(context.spellId(), attackId)
+        );
+    }
+
+    private static void executeMeleeAttack(SpellContext context,
+                                           Spell.Delivery.Melee.Attack attack,
+                                           Set<LivingEntity> alreadyHit,
+                                           World world,
+                                           boolean playAttackAnimation) {
+        LivingEntity caster = context.caster();
+        if (!caster.isAlive()) return;
+
+        orientCasterTowardTarget(context);
+
+        float strikeYaw = GuardMeleeTargeting.resolveStrikeYaw(caster, context.target());
+        float attackRange = meleeAttackRange(caster, context.entry());
+
+        Entity focus = context.target();
+        List<LivingEntity> candidates = GuardMeleeTargeting.findTargets(
+                caster,
+                focus,
+                attack.hitbox,
+                attackRange,
+                strikeYaw,
+                caster.getPitch()
+        );
+
+        List<Spell.Impact> impacts = context.getImpacts();
+        boolean hasSpellImpacts = impacts != null && !impacts.isEmpty();
+        int impactSoundCap = attack.impact_sound_cap > 0 ? attack.impact_sound_cap : 999;
+
+        for (LivingEntity target : candidates) {
+            if (!attack.additional_hits_on_same_target && alreadyHit.contains(target)) {
+                continue;
+            }
+
+            Vec3d impactPos = target.getPos().add(0, target.getHeight() * 0.5, 0);
+            SpellHelper.ImpactContext impactCtx = context.impactContext().position(impactPos);
+
+            boolean weaponHit = false;
+            boolean spellHit = false;
+
+            clearMeleeDamageInvulnerability(target);
+
+            if (caster instanceof GuardEntity guard) {
+                weaponHit = guard.trySpellMeleeWeaponHit(target);
+            } else if (caster instanceof MobEntity mob) {
+                weaponHit = mob.tryAttack(target);
+            }
+
+            if (hasSpellImpacts) {
+                spellHit = SpellHelper.meleeImpact(caster, List.of(target), context.entry(), impactCtx);
+            }
+
+            if (weaponHit || spellHit) {
+                alreadyHit.add(target);
+                triggerPassiveSpells(caster, target, context.entry(), false);
+                triggerStashedEffects(caster, target, context.entry());
+
+                if (attack.impact_sound != null && attack.impact_sound.id() != null && impactSoundCap > 0) {
+                    Identifier soundId = Identifier.tryParse(attack.impact_sound.id());
+                    if (soundId != null) {
+                        var soundEntry = Registries.SOUND_EVENT.getEntry(soundId);
+                        if (soundEntry.isPresent()) {
+                            world.playSound(null, target.getBlockPos(), soundEntry.get().value(), SoundCategory.PLAYERS, 1.0F, 1.0F);
+                            impactSoundCap--;
+                        }
+                    }
+                }
+
+                if (caster instanceof GuardEntity guard && !world.isClient()) {
+                    String dmgType = spellHit && weaponHit ? "spell+weapon"
+                            : spellHit ? "spell" : "weapon";
+                    String attackLabel = SpellCombatTargeting.meleeAttackLabel(guard, attack);
+                    GuardDebugManager.broadcast(guard,
+                            "⚔️ " + context.spellId().getPath() + " (" + attackLabel + ", " + dmgType + ") → "
+                                    + target.getName().getString(),
+                            Formatting.GREEN);
+                }
+            }
+        }
+
+        if (playAttackAnimation && attack.animation != null && caster instanceof GuardEntity guard) {
+            String attackAnimId = GuardCastVisuals.resolveAnimationId(guard, attack.animation);
+            if (attackAnimId != null) {
+                String releaseAnimId = null;
+                if (context.spell().release != null && context.spell().release.animation != null) {
+                    releaseAnimId = GuardCastVisuals.resolveReleaseAnimationId(guard, context.spell());
+                }
+                
+                if (releaseAnimId == null || !attackAnimId.equals(releaseAnimId)) {
+                    GuardCastVisuals.playPerAttackSwing(guard, attack);
+                }
+            }
+        }
+
+        float attackArc = (attack.hitbox != null && attack.hitbox.arc > 0) ? attack.hitbox.arc : 120.0f;
+        boolean allowAirborne = attack.allow_momentum_airborne
+                || (context.spell().deliver != null
+                && context.spell().deliver.melee != null
+                && context.spell().deliver.melee.allow_airborne);
+
+        if (playAttackAnimation && attackArc < 270f && caster.isAlive() && (caster.isOnGround() || allowAirborne)
+                && attack.forward_momentum > 0) {
+            Vec3d direction = new Vec3d(0, 0, 1)
+                    .rotateY((float) Math.toRadians(-strikeYaw))
+                    .multiply(attack.forward_momentum);
+            caster.addVelocity(direction.x, 0, direction.z);
+            caster.velocityModified = true;
+        }
+
+        if (caster instanceof GuardEntity guard && attack.movement_slipperiness > 0) {
+            Melee.Attack meleeAttack = toMeleeAttack(context, attack);
+            int durationTicks = meleeAttack.duration() > 0
+                    ? meleeAttack.duration()
+                    : Math.max(10, (int) (attack.delay * 20) + 5);
+            Melee.Attack timedAttack = new Melee.Attack(
+                    durationTicks,
+                    meleeAttack.delay(),
+                    meleeAttack.additional_strikes(),
+                    meleeAttack.additional_strike_delay(),
+                    meleeAttack.additional_hits_on_same_target(),
+                    meleeAttack.speed(),
+                    meleeAttack.forward_momentum(),
+                    meleeAttack.allow_momentum_airborne(),
+                    meleeAttack.movement_speed(),
+                    meleeAttack.movement_slip(),
+                    meleeAttack.range(),
+                    meleeAttack.hitbox(),
+                    meleeAttack.animation(),
+                    meleeAttack.context()
+            );
+            guard.setMeleeSkillAttack(new Melee.ActiveAttack(
+                    timedAttack,
+                    caster.age,
+                    guard.getMainHandStack().getItem()
+            ));
+        }
+
+        if (playAttackAnimation && attack.swing_sound != null && attack.swing_sound.id() != null) {
+            Identifier soundId = Identifier.tryParse(attack.swing_sound.id());
+            if (soundId != null) {
+                Registries.SOUND_EVENT.getEntry(soundId).ifPresent(entry ->
+                        world.playSound(null, caster.getBlockPos(), entry.value(), SoundCategory.PLAYERS, 1.0F, 1.0F));
+            }
+        }
+
+        if (!(caster instanceof GuardEntity guard && guard.shouldSuppressVanillaSpellSwing())) {
+        caster.swingHand(Hand.MAIN_HAND, true);
+        }
+    }
+
+    private static void clearMeleeDamageInvulnerability(LivingEntity target) {
+        ((LivingEntitySpellMeleeAccess) target).guardvillagers$clearMeleeDamageInvulnerability();
+    }
+
     private static void logCast(SpellContext context, String deliveryType) {
-        if (context.caster() instanceof GuardEntity guard && !guard.getWorld().isClient()) {
+        if (context.caster() instanceof GuardEntity guard
+                && !guard.getWorld().isClient()
+                && GuardDebugManager.hasWatchers(guard)) {
             String spellName = context.spellId().getPath();
             float actualPower = (float) context.impactContext().power().baseValue();
-
             GuardDebugManager.broadcast(guard,
                     "✨ " + spellName + " [" + deliveryType + "] Power: " + actualPower,
                     Formatting.LIGHT_PURPLE);
@@ -1051,29 +1854,4 @@ public class SpellDelivery {
         }
     }
 
-    private static void playReleaseSound(SpellContext context) {
-        Spell spell = context.spell();
-        if (spell.release != null && spell.release.sound != null) {
-            String soundIdString = spell.release.sound.id();
-
-            if (soundIdString == null || soundIdString.isEmpty()) {
-                return;
-            }
-
-            Identifier soundId = Identifier.tryParse(soundIdString);
-            if (soundId != null) {
-                SoundEvent sound = Registries.SOUND_EVENT.get(soundId);
-                if (sound != null) {
-                    context.caster().getWorld().playSound(
-                            null,
-                            context.caster().getBlockPos(),
-                            sound,
-                            SoundCategory.PLAYERS,
-                            1.0F,
-                            1.0F
-                    );
-                }
-            }
-        }
-    }
 }

@@ -1,53 +1,51 @@
 package dev.sterner.guardvillagers.common.entity.goal.spell;
 
+import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.Goal;
-import net.minecraft.particle.ParticleEffect;
-import net.minecraft.particle.ParticleTypes;
-import net.minecraft.registry.Registries;
 import net.minecraft.registry.entry.RegistryEntry;
-import net.minecraft.server.world.ServerWorld;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.sound.SoundEvent;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
-import net.minecraft.util.math.Vec3d;
-import net.minecraft.util.math.random.Random;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.api.spell.registry.SpellRegistry;
-import net.spell_engine.api.spell.fx.ParticleBatch;
+import net.spell_engine.fx.ParticleHelper;
 import net.spell_engine.internals.SpellHelper;
-import net.spell_power.api.SpellPower;
+import net.spell_engine.internals.casting.SpellCast;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
 public abstract class BaseSpellGoal extends Goal {
     protected final GuardEntity guard;
-    protected final Map<Identifier, Integer> spellCooldowns = new HashMap<>();
 
     protected Identifier currentSpellId;
     protected RegistryEntry<Spell> cachedSpellEntry;
     protected int windUpTicks;
     protected int channelTicksLeft;
     protected int castingDelayTicks;
+    protected int channelHitsDelivered;
     protected boolean isChanneled;
     protected boolean spellFired;
 
     public BaseSpellGoal(GuardEntity guard) {
         this.guard = guard;
-        this.setControls(EnumSet.of(Control.MOVE, Control.LOOK));
+        this.setControls(EnumSet.noneOf(Control.class));
     }
 
     @Override
     public void stop() {
         guard.stopUsingItem();
-        guard.setCastingSpell(false);
-        guard.getNavigation().stop();
+        if (shouldInterruptCastOnStop()) {
+            guard.interruptSpellCast();
+        }
         resetSpellState();
+    }
+
+    protected boolean shouldInterruptCastOnStop() {
+        return guard.isSpellCastBusy() || currentSpellId != null;
     }
 
     protected void resetSpellState() {
@@ -56,19 +54,158 @@ public abstract class BaseSpellGoal extends Goal {
         windUpTicks = 0;
         channelTicksLeft = 0;
         castingDelayTicks = 0;
+        channelHitsDelivered = 0;
         isChanneled = false;
         spellFired = false;
     }
 
     protected void tickCooldowns() {
-        spellCooldowns.replaceAll((id, time) -> Math.max(time - 1, 0));
     }
 
     protected boolean isSpellOnCooldown(Identifier spellId) {
-        return spellCooldowns.getOrDefault(spellId, 0) > 0;
+        return guard.isSpellOnCooldown(spellId);
     }
 
-    protected void startWindup(Identifier spellId, RegistryEntry<Spell> entry) {
+    protected void putSpellCooldown(Identifier spellId, int ticks) {
+        guard.getSpellManager().applySharedSpellCooldown(spellId, ticks);
+    }
+
+    protected void applySpellCooldownOnComplete(Identifier spellId, Spell spell) {
+        if (spellId != null) {
+            putSpellCooldown(spellId, getCooldownTicks(spell));
+        }
+    }
+
+    
+    protected void applySpellCooldownOnAbort(Identifier spellId, Spell spell) {
+        if (spellId == null) {
+            return;
+        }
+        int ticks = resolveCooldownTicksForProgress(spell, getCastProgressRatio());
+        if (ticks > 0) {
+            putSpellCooldown(spellId, ticks);
+        }
+    }
+
+    protected float getCastProgressRatio() {
+        SpellCast.Process process = guard.getSpellCastProcess();
+        if (process != null) {
+            return process.progress(guard.getWorld().getTime()).ratio();
+        }
+        if (isChanneled && cachedSpellEntry != null) {
+            int total = getChannelDuration(cachedSpellEntry.value());
+            if (total > 0) {
+                return Math.min(1f, (total - channelTicksLeft) / (float) total);
+            }
+        }
+        return spellFired ? 1f : 0f;
+    }
+
+    protected int resolveCooldownTicksForProgress(Spell spell, float progressRatio) {
+        int fullTicks = getCooldownTicks(spell);
+        if (!isProportionalCooldown(spell)) {
+            return fullTicks;
+        }
+        float ratio = Math.min(1f, Math.max(0f, progressRatio));
+        if (ratio <= 0f) {
+            return 0;
+        }
+        return Math.max(1, Math.round(fullTicks * ratio));
+    }
+
+    protected boolean isProportionalCooldown(Spell spell) {
+        return spell.cost != null && spell.cost.cooldown != null && spell.cost.cooldown.proportional;
+    }
+
+    protected void abortCastWithProgressCooldown(@Nullable Spell spell) {
+        if (currentSpellId != null && spell != null) {
+            applySpellCooldownOnAbort(currentSpellId, spell);
+            finishAbortCastVisuals(spell);
+        } else {
+            guard.interruptSpellCast();
+        }
+        onCastAborted();
+    }
+
+    protected void finishAbortCastVisuals(Spell spell) {
+        guard.setActiveBeam(null);
+        guard.setSpellCastProcess(null);
+        guard.setCastingSpell(false);
+        guard.stopUsingItem();
+        GuardCastVisuals.completeCastWithRelease(guard, spell);
+    }
+
+    protected void onCastAborted() {
+        resetSpellState();
+    }
+
+    protected float resolveCastRange(@Nullable Spell spell, float fallbackRange) {
+        if (spell != null && spell.range > 0) {
+            return spell.range;
+        }
+        return fallbackRange;
+    }
+
+    protected void scheduleSpellCooldownOnComplete(Identifier spellId, Spell spell) {
+        if (spellId == null) {
+            return;
+        }
+        applySpellCooldownOnComplete(spellId, spell);
+        int wait = GuardSpellTimings.postDeliverWaitTicks(guard, spell);
+        if (wait <= 0) {
+            guard.setCastingSpell(false);
+            guard.setSpellCastProcess(null);
+            return;
+        }
+        GuardCastVisuals.scheduleAfterTicks(guard, wait, () -> {
+            if (!guard.isAlive()) {
+                return;
+            }
+            guard.setCastingSpell(false);
+            guard.setSpellCastProcess(null);
+        });
+    }
+
+    public void clearAllCooldowns() {
+        guard.clearAllSpellCooldowns();
+    }
+
+    public void clearCooldown(Identifier spellId) {
+        guard.clearSpellCooldown(spellId);
+    }
+
+    public void setCooldown(Identifier spellId, int ticks) {
+        guard.setSpellCooldown(spellId, ticks);
+    }
+
+    public Map<Identifier, Integer> getCooldowns() {
+        return guard.getSpellCooldowns();
+    }
+
+    public String getActiveSpellLabel() {
+        if (currentSpellId == null) {
+            return null;
+        }
+        return currentSpellId.getPath();
+    }
+
+    protected boolean checkCastInterrupt(boolean activelyCasting) {
+        if (!activelyCasting) {
+            return false;
+        }
+        if (currentSpellId != null && !guard.getSpellManager().knowsSpell(currentSpellId)) {
+            abortActiveCast();
+            return true;
+        }
+        return false;
+    }
+
+    protected void abortActiveCast() {
+        guard.interruptSpellCast();
+        resetSpellState();
+    }
+
+    protected void beginSpellCast(Identifier spellId, RegistryEntry<Spell> entry, boolean meleeArchetype) {
         this.currentSpellId = spellId;
         this.cachedSpellEntry = entry;
         Spell spell = entry.value();
@@ -77,72 +214,60 @@ public abstract class BaseSpellGoal extends Goal {
         this.channelTicksLeft = getChannelDuration(spell);
         this.spellFired = false;
 
-        guard.setCurrentHand(Hand.MAIN_HAND);
-        guard.setCastingSpell(true);
+        GuardCastVisuals.beginCast(guard, entry, spell, meleeArchetype);
+
+        if (GuardDebugManager.hasWatchers(guard)) {
+            GuardDebugManager.broadcast(guard,
+                    "▶ " + spellId.getPath() + " via " + getClass().getSimpleName(),
+                    net.minecraft.util.Formatting.LIGHT_PURPLE);
+        }
     }
 
     protected int getWindUpTicks(Spell spell) {
-        // For channeled spells, use a short wind-up (1 second) before channeling starts
-        // The channel duration is separate from the wind-up
-        if (isSpellChanneled(spell)) {
-            // Channeled spells start channeling after 1 second wind-up
-            float hasteModifier = SpellPower.getHaste(guard, spell.school);
-            return Math.max(10, (int)(20 / hasteModifier));
-        }
-        
-        // For non-channeled spells, use the full cast duration
-        if (spell.active != null && spell.active.cast != null) {
-            float hasteDuration = SpellHelper.getCastDuration(guard, spell);
-            return Math.max(1, (int)(hasteDuration * 20));
-        }
-        return 20;
+        return GuardCastVisuals.windUpTicks(guard, spell);
     }
 
-    /**
-     * Get the total duration of a channeled spell in ticks.
-     * This is how long the channeling phase lasts after wind-up completes.
-     */
     protected int getChannelDuration(Spell spell) {
-        if (spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0) {
-            // Duration is the total time, convert to ticks
-            float hasteDuration = SpellHelper.getCastDuration(guard, spell);
-            return Math.max(1, (int)(hasteDuration * 20));
-        }
-        return 0;
+        return GuardCastVisuals.channelDurationTicks(guard, spell);
     }
 
-    /**
-     * Get the interval between spell fires during channeling.
-     * For a spell with duration=8s and channel_ticks=8, this fires every 1 second (20 ticks).
-     */
     protected int getChannelFireInterval(Spell spell) {
-        if (spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0) {
-            float hasteDuration = SpellHelper.getCastDuration(guard, spell);
-            int totalTicks = Math.max(1, (int)(hasteDuration * 20));
-            int channelTicks = spell.active.cast.channel_ticks;
-            return Math.max(1, totalTicks / channelTicks);
-        }
-        return 20; // Default 1 second
+        return GuardCastVisuals.channelFireIntervalTicks(guard, spell);
     }
 
     protected int getCooldownTicks(Spell spell) {
-        int baseTicks;
-        if (cachedSpellEntry != null) {
-            baseTicks = (int)(SpellHelper.getCooldownDuration(guard, cachedSpellEntry) * 20);
-        } else if (spell.cost != null && spell.cost.cooldown != null) {
+        int baseTicks = 0;
+        if (spell.cost != null && spell.cost.cooldown != null && spell.cost.cooldown.duration > 0) {
             baseTicks = (int)(spell.cost.cooldown.duration * 20);
-        } else {
-            baseTicks = 20;
         }
-        // Apply cooldown reduction from MODIFIER spells
+        if (baseTicks <= 0) {
+            baseTicks = 60;
+        }
         if (cachedSpellEntry != null) {
             baseTicks = guard.getSpellManager().getAugmentedCooldownTicks(cachedSpellEntry, baseTicks);
         }
-        return baseTicks;
+        return Math.max(1, baseTicks);
+    }
+
+    public static int resolveCooldownTicks(GuardEntity guard, RegistryEntry<Spell> entry) {
+        Spell spell = entry.value();
+        int baseTicks = 0;
+        if (spell.cost != null && spell.cost.cooldown != null && spell.cost.cooldown.duration > 0) {
+            baseTicks = (int) (spell.cost.cooldown.duration * 20);
+        }
+        if (baseTicks <= 0) {
+            baseTicks = 60;
+        }
+        baseTicks = guard.getSpellManager().getAugmentedCooldownTicks(entry, baseTicks);
+        return Math.max(1, baseTicks);
     }
 
     protected boolean isSpellChanneled(Spell spell) {
         return spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0;
+    }
+
+    protected void configureChannelCastVisuals(Spell spell) {
+        GuardCastVisuals.beginChannel(guard, spell);
     }
 
     protected Optional<RegistryEntry.Reference<Spell>> getSpellEntry(Identifier spellId) {
@@ -150,13 +275,7 @@ public abstract class BaseSpellGoal extends Goal {
     }
 
     protected void playSpellSound(Spell spell) {
-        if (spell.release != null && spell.release.sound != null) {
-            Identifier soundId = Identifier.tryParse(spell.release.sound.id());
-            if (soundId != null) {
-                SoundEvent sound = Registries.SOUND_EVENT.get(soundId);
-                guard.getWorld().playSound(null, guard.getBlockPos(), sound, SoundCategory.PLAYERS, 1.0F, 1.0F);
-            }
-        }
+        GuardSpellSounds.playRelease(guard, spell);
     }
 
     protected SpellContext.Builder createSpellContext(Identifier spellId, RegistryEntry<Spell> entry, LivingEntity target) {
@@ -172,104 +291,64 @@ public abstract class BaseSpellGoal extends Goal {
         if (spell.active == null || spell.active.cast == null || spell.active.cast.particles == null) {
             return;
         }
-
-        if (!(guard.getWorld() instanceof ServerWorld serverWorld)) {
+        if (guard.getWorld().isClient()) {
             return;
         }
+        ParticleHelper.sendBatches(guard, spell.active.cast.particles);
+    }
 
-        Vec3d guardPos = guard.getPos();
-        Vec3d eyePos = guard.getEyePos();
-        Vec3d lookVec = guard.getRotationVector();
+    protected void deliverCastTick(@Nullable LivingEntity assignedTarget) {
+        if (currentSpellId == null || cachedSpellEntry == null) {
+            return;
+        }
+        Spell spell = cachedSpellEntry.value();
+        int channelIndex = isChanneled
+                ? Math.max(0, getChannelDuration(spell) - channelTicksLeft - 1)
+                : 0;
+        guard.setChannelTickIndex(channelIndex);
+        SupportSpellCasting.deliver(guard, currentSpellId, cachedSpellEntry, assignedTarget, channelIndex);
+        channelHitsDelivered++;
+    }
 
-        for (ParticleBatch particleBatch : spell.active.cast.particles) {
-            if (particleBatch.particle_id == null) continue;
+    
 
-            Identifier particleId = Identifier.tryParse(particleBatch.particle_id);
-            if (particleId == null) continue;
+    protected boolean tickChanneledCast(
+            @Nullable LivingEntity lookTarget,
+            @Nullable LivingEntity deliveryTarget,
+            Runnable onComplete
+    ) {
+        if (currentSpellId == null || cachedSpellEntry == null) {
+            return false;
+        }
 
-            Vec3d origin = switch (particleBatch.origin) {
-                case FEET -> guardPos;
-                case CENTER -> new Vec3d(guardPos.x, guardPos.y + guard.getHeight() * 0.5, guardPos.z);
-                case LAUNCH_POINT -> eyePos;
-                case GROUND -> new Vec3d(guardPos.x, guardPos.y, guardPos.z);
-            };
+        Spell spell = cachedSpellEntry.value();
+        guard.setCastingSpell(true);
 
-            int count = (int) particleBatch.count;
-            double minSpeed = particleBatch.min_speed;
-            double maxSpeed = particleBatch.max_speed > 0 ? particleBatch.max_speed : minSpeed;
-
-            if (particleBatch.shape == ParticleBatch.Shape.CONE && particleBatch.angle > 0) {
-                spawnConeParticles(serverWorld, particleId, origin, lookVec,
-                        count, minSpeed, maxSpeed, particleBatch.angle);
-            } else {
-                spawnSimpleParticles(serverWorld, particleId, origin,
-                        count, minSpeed, maxSpeed);
+        if (channelTicksLeft > 0) {
+            if (lookTarget != null && lookTarget.isAlive()) {
+                guard.getLookControl().lookAt(lookTarget, 30.0F, 30.0F);
             }
+            if (spell.target != null && spell.target.type == Spell.Target.Type.BEAM) {
+                guard.setActiveBeam(spell.target.beam);
+            }
+            if (channelTicksLeft % 2 == 0) {
+                spawnCastingParticles(spell);
+            }
+
+            if (channelTicksLeft == getChannelDuration(spell)) {
+                configureChannelCastVisuals(spell);
+                deliverCastTick(deliveryTarget);
+                castingDelayTicks = getChannelFireInterval(spell);
+            } else if (--castingDelayTicks <= 0) {
+                deliverCastTick(deliveryTarget);
+                castingDelayTicks = getChannelFireInterval(spell);
+            }
+            channelTicksLeft--;
+            return true;
         }
-    }
 
-    private void spawnConeParticles(ServerWorld world, Identifier particleId, Vec3d origin,
-                                    Vec3d direction, int count, double minSpeed, double maxSpeed, float angle) {
-        double halfAngleRad = Math.toRadians(angle / 2.0);
-        Random random = world.getRandom();
-
-        ParticleEffect particleEffect = getParticleEffect(particleId);
-        if (particleEffect == null) return;
-
-        for (int i = 0; i < count; i++) {
-            double pitch = (random.nextDouble() - 0.5) * 2 * halfAngleRad;
-            double yaw = (random.nextDouble() - 0.5) * 2 * halfAngleRad;
-
-            double cosPitch = Math.cos(pitch);
-            Vec3d velocity = new Vec3d(
-                    direction.x * cosPitch * Math.cos(yaw) - direction.z * Math.sin(yaw),
-                    direction.y * cosPitch + Math.sin(pitch),
-                    direction.z * cosPitch * Math.cos(yaw) + direction.x * Math.sin(yaw)
-            );
-
-            double speed = minSpeed + (maxSpeed - minSpeed) * random.nextDouble();
-            velocity = velocity.normalize().multiply(speed);
-
-            world.spawnParticles(
-                    particleEffect,
-                    origin.x, origin.y, origin.z,
-                    0,
-                    velocity.x, velocity.y, velocity.z,
-                    speed * 0.5
-            );
-        }
-    }
-
-    private void spawnSimpleParticles(ServerWorld world, Identifier particleId, Vec3d origin,
-                                      int count, double minSpeed, double maxSpeed) {
-        Random random = world.getRandom();
-
-        ParticleEffect particleEffect = getParticleEffect(particleId);
-        if (particleEffect == null) return;
-
-        for (int i = 0; i < count; i++) {
-            double speed = minSpeed + (maxSpeed - minSpeed) * random.nextDouble();
-            Vec3d velocity = new Vec3d(
-                    (random.nextDouble() - 0.5) * 2,
-                    (random.nextDouble() - 0.5) * 2,
-                    (random.nextDouble() - 0.5) * 2
-            ).normalize().multiply(speed);
-
-            world.spawnParticles(
-                    particleEffect,
-                    origin.x, origin.y, origin.z,
-                    0,
-                    velocity.x, velocity.y, velocity.z,
-                    speed * 0.5
-            );
-        }
-    }
-
-    private ParticleEffect getParticleEffect(Identifier particleId) {
-        var particleType = Registries.PARTICLE_TYPE.get(particleId);
-        if (particleType instanceof ParticleEffect effect) {
-            return effect;
-        }
-        return ParticleTypes.FLAME;
+        guard.setActiveBeam(null);
+        onComplete.run();
+        return false;
     }
 }

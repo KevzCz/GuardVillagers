@@ -2,15 +2,16 @@ package dev.sterner.guardvillagers.common.entity.goal;
 
 import dev.sterner.guardvillagers.common.ai.CombatMovementHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardItemTags;
 import dev.sterner.guardvillagers.common.entity.GuardSpellManager;
 import dev.sterner.guardvillagers.common.entity.goal.spell.BaseSpellGoal;
 import dev.sterner.guardvillagers.common.entity.goal.spell.ConditionalSpellGoal;
+import dev.sterner.guardvillagers.common.entity.goal.spell.GuardCastVisuals;
 import dev.sterner.guardvillagers.common.entity.goal.spell.SpellContext;
 import dev.sterner.guardvillagers.common.entity.goal.spell.SpellDelivery;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.RangedAttackMob;
 import net.minecraft.item.BowItem;
-import net.minecraft.registry.Registries;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
@@ -31,6 +32,9 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
     private boolean movingToLeft = false;
     private boolean backward = false;
 
+    private enum BowSpellState { NONE, WINDING_UP, CHANNELING }
+    private BowSpellState bowSpellState = BowSpellState.NONE;
+
     public RangedBowAttackPassiveGoal(T actor, double speed, int attackInterval, float range) {
         super(actor);
         this.actor = actor;
@@ -42,11 +46,17 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
 
     @Override
     public boolean canStart() {
+        if (actor.isCastingMeleeSpell()) {
+            return false;
+        }
         return actor.getTarget() != null && isHoldingBow();
     }
 
     @Override
     public boolean shouldContinue() {
+        if (actor.isCastingMeleeSpell()) {
+            return false;
+        }
         return canStart() || !actor.getNavigation().isIdle();
     }
 
@@ -60,6 +70,7 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
         super.stop();
         actor.setAttacking(false);
         actor.clearActiveItem();
+        resetBowSpellState();
     }
 
     @Override
@@ -70,14 +81,28 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
         updateBowMovement(target);
         tickCooldowns();
 
+        if (bowSpellState != BowSpellState.NONE) {
+            actor.getLookControl().lookAt(target, 30.0F, 30.0F);
+            maintainBowDrawDuringSpell();
+            handleBowSpellCasting(target);
+            return;
+        }
+
         if (cooldown > 0) {
             cooldown--;
+            return;
+        }
+
+        if (!actor.isCastingSpell() && tryStartBowSpellCast(target)) {
             return;
         }
 
         if (actor.isUsingItem()) {
             handleBowDrawn(target);
         } else if (targetSeeingTicker >= -60) {
+            if (!actor.isCastingSpell()) {
+                GuardCastVisuals.clearTransientVisualClips(actor);
+            }
             actor.setCurrentHand(Hand.MAIN_HAND);
         }
     }
@@ -101,103 +126,157 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
 
         if (!canSee || useTime < 30) return;
 
-        if (cachedSpellEntry != null && useTime % 2 == 0) {
-            spawnCastingParticles(cachedSpellEntry.value());
-        }
-
         if (useTime >= 30) {
             actor.clearActiveItem();
-
-            if (trySpellCast(target)) {
-                cooldown = 0;
-            } else {
-                ((RangedAttackMob) actor).shootAt(target, BowItem.getPullProgress(useTime));
-            }
+            ((RangedAttackMob) actor).shootAt(target, BowItem.getPullProgress(useTime));
         }
     }
 
-    private boolean trySpellCast(LivingEntity target) {
-        Identifier stashSpellId = getStashEffectSpellId();
-        if (stashSpellId != null && !isSpellOnCooldown(stashSpellId)) {
-            return castSpell(stashSpellId, target);
+    private boolean tryStartBowSpellCast(LivingEntity target) {
+        if (!actor.getVisibilityCache().canSee(target)) {
+            return false;
         }
 
-        Identifier supportSpellId = getSupportSpellId();
-        if (supportSpellId != null && !isSpellOnCooldown(supportSpellId)) {
-            return castSpell(supportSpellId, target);
+        Identifier spellId = pickBowSpellId(target);
+        if (spellId == null) {
+            return false;
         }
 
-        float spellChance = getScaledSpellChance();
-        if (actor.getRandom().nextFloat() >= spellChance) return false;
-
-        Identifier spellId = getBowSpellId();
-        if (spellId == null || isSpellOnCooldown(spellId)) return false;
-
-        return castSpell(spellId, target);
-    }
-
-    private Identifier getStashEffectSpellId() {
-        Optional<GuardSpellManager.CategorizedSpell> bestSpell = actor.getSpellManager().getBestSpell(
-                GuardSpellManager.SpellCategory.RANGED_BOW,
-                spell -> {
-                    Spell s = spell.entry().value();
-                    return s.deliver != null
-                            && s.deliver.type == Spell.Delivery.Type.STASH_EFFECT
-                            && !isSpellOnCooldown(spell.spellId());
-                }
-        );
-
-        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
-    }
-
-    private boolean castSpell(Identifier spellId, LivingEntity target) {
         return getSpellEntry(spellId).map(entry -> {
-            cachedSpellEntry = entry;
-            currentSpellId = spellId;
-
-            SpellContext context = createSpellContext(spellId, entry, target).build();
             Spell spell = entry.value();
+            currentSpellId = spellId;
+            cachedSpellEntry = entry;
+            windUpTicks = getWindUpTicks(spell);
+            isChanneled = isSpellChanneled(spell);
+            channelTicksLeft = getChannelDuration(spell);
+            castingDelayTicks = 0;
 
-            if (spell.deliver != null) {
-                switch (spell.deliver.type) {
-                    case SHOOT_ARROW, PROJECTILE -> SpellDelivery.castProjectile(context, 0);
-                    case METEOR -> SpellDelivery.castMeteor(context);
-                    case CLOUD -> SpellDelivery.castCloud(context);
-                    case DIRECT -> SpellDelivery.castDirect(context);
-                    case STASH_EFFECT -> SpellDelivery.castStashEffect(context);
-                    case MELEE -> SpellDelivery.castDirect(context);
-                    case CUSTOM -> SpellDelivery.castCustom(context);
-                }
+            actor.setCurrentHand(Hand.MAIN_HAND);
+            if (windUpTicks > 0) {
+                bowSpellState = BowSpellState.WINDING_UP;
+                GuardCastVisuals.beginBowCast(actor, entry, spell);
+            } else if (isChanneled && channelTicksLeft > 0) {
+                bowSpellState = BowSpellState.CHANNELING;
+                GuardCastVisuals.beginBowCast(actor, entry, spell);
+                configureChannelCastVisuals(spell);
             } else {
-                SpellDelivery.castDirect(context);
+                finishBowSpellCast(target, spell, entry);
             }
-
-            spellCooldowns.put(spellId, getCooldownTicks(spell));
-            cachedSpellEntry = null;
-            currentSpellId = null;
             return true;
         }).orElse(false);
     }
 
-    private float getScaledSpellChance() {
-        double rangedDamage = 0.0;
-
-        Optional<RegistryEntry.Reference<net.minecraft.entity.attribute.EntityAttribute>> attrOpt =
-                Registries.ATTRIBUTE.getEntry(Identifier.of("ranged_weapon", "damage"));
-
-        if (attrOpt.isPresent()) {
-            RegistryEntry<net.minecraft.entity.attribute.EntityAttribute> attr = attrOpt.get();
-            if (actor.getAttributes().hasAttribute(attr)) {
-                rangedDamage = actor.getAttributeValue(attr);
-            }
+    private void handleBowSpellCasting(LivingEntity target) {
+        if (cachedSpellEntry == null) {
+            resetBowSpellState();
+            return;
         }
 
-        double minChance = 0.05;
-        double maxChance = 0.5;
-        double maxDamage = 50.0;
+        Spell spell = cachedSpellEntry.value();
 
-        double chance = minChance + (Math.min(rangedDamage, maxDamage) / maxDamage) * (maxChance - minChance);
-        return (float) chance;
+        switch (bowSpellState) {
+            case WINDING_UP -> {
+                if (windUpTicks % 2 == 0) {
+                    spawnCastingParticles(spell);
+                }
+                if (--windUpTicks <= 0) {
+                    if (isChanneled && channelTicksLeft > 0) {
+                        bowSpellState = BowSpellState.CHANNELING;
+                        configureChannelCastVisuals(spell);
+                    } else {
+                        finishBowSpellCast(target, spell, cachedSpellEntry);
+                    }
+                }
+            }
+            case CHANNELING -> {
+                if (channelTicksLeft % 2 == 0) {
+                    spawnCastingParticles(spell);
+                }
+                if (channelTicksLeft > 0) {
+                    if (channelTicksLeft == getChannelDuration(spell) || --castingDelayTicks <= 0) {
+                        deliverBowSpell(createSpellContext(currentSpellId, cachedSpellEntry, target).build(), spell);
+                        castingDelayTicks = getChannelFireInterval(spell);
+                    }
+                    channelTicksLeft--;
+                } else {
+                    completeBowSpellCast(spell);
+                }
+            }
+            default -> resetBowSpellState();
+        }
+    }
+
+    private void finishBowSpellCast(LivingEntity target, Spell spell, RegistryEntry<Spell> entry) {
+        deliverBowSpell(createSpellContext(currentSpellId, entry, target).build(), spell);
+        completeBowSpellCast(spell);
+    }
+
+    private void completeBowSpellCast(Spell spell) {
+        actor.clearActiveItem();
+        if (!GuardCastVisuals.hasReleaseAnimation(spell)) {
+            GuardCastVisuals.completeCastWithRelease(actor, spell);
+        }
+        scheduleSpellCooldownOnComplete(currentSpellId, spell);
+        resetBowSpellState();
+        cooldown = 10;
+    }
+
+    private void maintainBowDrawDuringSpell() {
+        if (!actor.isUsingItem()) {
+            actor.setCurrentHand(Hand.MAIN_HAND);
+        }
+    }
+
+    private void resetBowSpellState() {
+        bowSpellState = BowSpellState.NONE;
+        currentSpellId = null;
+        cachedSpellEntry = null;
+        windUpTicks = 0;
+        channelTicksLeft = 0;
+        castingDelayTicks = 0;
+        isChanneled = false;
+    }
+
+    private Identifier pickBowSpellId(LivingEntity ignoredTarget) {
+        Identifier stashSpellId = getStashEffectSpellId();
+        if (stashSpellId != null && !isSpellOnCooldown(stashSpellId)) {
+            return stashSpellId;
+        }
+
+        Identifier supportSpellId = getSupportSpellId();
+        if (supportSpellId != null && !isSpellOnCooldown(supportSpellId)) {
+            return supportSpellId;
+        }
+
+        Identifier spellId = getBowSpellId();
+        if (spellId == null || isSpellOnCooldown(spellId)) {
+            return null;
+        }
+        return spellId;
+    }
+
+    private Identifier getStashEffectSpellId() {
+        java.util.function.Predicate<GuardSpellManager.CategorizedSpell> isStashArrowSpell = spell -> {
+            Spell s = spell.entry().value();
+            return s.deliver != null
+                    && s.deliver.type == Spell.Delivery.Type.STASH_EFFECT
+                    && !isSpellOnCooldown(spell.spellId());
+        };
+
+        GuardSpellManager manager = actor.getSpellManager();
+        Optional<GuardSpellManager.CategorizedSpell> bestSpell = manager.getBestSpell(
+                GuardSpellManager.SpellCategory.RANGED_BOW,
+                isStashArrowSpell
+        );
+        if (bestSpell.isEmpty()) {
+            bestSpell = manager.getBestSpell(GuardSpellManager.SpellCategory.SUPPORT, isStashArrowSpell);
+        }
+
+        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
+    }
+
+    private void deliverBowSpell(SpellContext context, Spell spell) {
+        SpellDelivery.deliverSpell(context, 0);
     }
 
     private Identifier getSupportSpellId() {
@@ -229,15 +308,10 @@ public class RangedBowAttackPassiveGoal<T extends GuardEntity & RangedAttackMob>
     }
 
     private boolean isArchetypeCompatibleWithBow(GuardSpellManager.CategorizedSpell spell) {
-        Spell s = spell.entry().value();
-
-        if (s.school == null || s.school.archetype == null) {
-            return true;
-        }
-        return s.school.archetype == net.spell_power.api.SpellSchool.Archetype.ARCHERY;
+        return GuardSpellManager.isArcheryArchetype(spell.entry().value());
     }
 
     private boolean isHoldingBow() {
-        return actor.getMainHandStack().getItem() instanceof BowItem;
+        return GuardItemTags.isBowLikeWeapon(actor.getMainHandStack());
     }
 }

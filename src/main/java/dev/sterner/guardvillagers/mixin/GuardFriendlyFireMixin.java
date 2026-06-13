@@ -24,8 +24,9 @@ public abstract class GuardFriendlyFireMixin extends ProjectileEntity {
         Entity hitEntity = hitResult.getEntity();
         Entity shooter = this.getOwner();
 
-        if (shooter instanceof GuardEntity && hitEntity instanceof GuardEntity || hitEntity instanceof VillagerEntity) {
-            ci.cancel(); // Cancel the hit effect
+        if (shooter instanceof GuardEntity
+                && (hitEntity instanceof GuardEntity || hitEntity instanceof VillagerEntity)) {
+            ci.cancel();
         }
     }
 }

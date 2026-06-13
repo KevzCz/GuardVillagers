@@ -1,5 +1,5 @@
 {
-  "type": "guardvillagers:slot",
+  "type": "minecraft:generic",
   "pools": [
     {
       "rolls": 1,
@@ -10,54 +10,110 @@
           "weight": 20
         },
         {
-          "type": "minecraft:group",
-          "children": [
-            {
-              "type": "minecraft:item",
-              "name": "minecraft:bow"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "minecraft:crossbow"
-            }
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "minecraft:bow",
+            "minecraft:crossbow"
           ],
           "weight": 15
         },
         {
-          "type": "minecraft:group",
-          "children": [
-            {
-              "type": "minecraft:item",
-              "name": "wizards:wand_frost"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "wizards:wand_arcane"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "wizards:wand_fire"
-            }
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "wizards:wand_frost",
+            "wizards:wand_arcane",
+            "wizards:wand_fire"
           ],
           "weight": 10
         },
         {
-          "type": "minecraft:group",
-          "children": [
-            {
-              "type": "minecraft:item",
-              "name": "wizards:wand_netherite_frost"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "wizards:wand_netherite_arcane"
-            },
-            {
-              "type": "minecraft:item",
-              "name": "wizards:wand_netherite_fire"
-            }
+          "type": "guardvillagers:optional_item",
+          "name": "paladins:holy_wand",
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "paladins:iron_great_hammer",
+            "paladins:iron_claymore",
+            "paladins:iron_mace"
           ],
-          "weight": 1
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_item",
+          "name": "archers:iron_spear",
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "rogues:iron_dagger",
+            "rogues:iron_sickle"
+          ],
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "rogues:iron_double_axe",
+            "rogues:iron_glaive"
+          ],
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "elemental_wizards_rpg:wand_aqua",
+            "elemental_wizards_rpg:wand_terra",
+            "elemental_wizards_rpg:wand_wind"
+          ],
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "bards_rpg:wooden_lute",
+            "bards_rpg:golden_lyre"
+          ],
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "spellbladenext:frost_blade",
+            "spellbladenext:fire_blade",
+            "spellbladenext:arcane_blade"
+          ],
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_item",
+          "name": "forcemaster_rpg:iron_knuckle",
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_item",
+          "name": "berserker_rpg:iron_berserker_axe",
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_item",
+          "name": "bards_rpg:iron_rapier",
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_one_of",
+          "items": [
+            "oathswornpaladins:iron_longsword",
+            "oathswornpaladins:iron_forge_mace"
+          ],
+          "weight": 10
+        },
+        {
+          "type": "guardvillagers:optional_item",
+          "name": "druids:wand_nature",
+          "weight": 10
         }
       ]
     }

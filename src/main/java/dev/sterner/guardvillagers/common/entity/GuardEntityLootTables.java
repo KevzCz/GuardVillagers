@@ -20,6 +20,7 @@ public class GuardEntityLootTables {
     public static final RegistryKey<LootTable> GUARD_CHEST = registerLootTable("entities/guard_chestplate");
     public static final RegistryKey<LootTable> GUARD_LEGGINGS = registerLootTable("entities/guard_legs");
     public static final RegistryKey<LootTable> GUARD_FEET = registerLootTable( "entities/guard_feet");
+    public static final RegistryKey<LootTable> GUARD_SPELL_SLOT = registerLootTable("entities/guard_spell_slot");
 
     public static RegistryKey<LootTable> registerLootTable(String id) {
         return RegistryKey.of(RegistryKeys.LOOT_TABLE, Identifier.of(GuardVillagers.MODID, id));

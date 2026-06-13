@@ -1,5 +1,5 @@
 {
-  "type": "guardvillagers:slot",
+  "type": "minecraft:generic",
   "pools": [
     {
       "rolls": 1,

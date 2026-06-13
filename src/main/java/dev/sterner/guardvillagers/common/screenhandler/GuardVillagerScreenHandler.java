@@ -36,7 +36,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 0, 8, 9) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                return EQUIPMENT_SLOT_ORDER[0] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && EQUIPMENT_SLOT_ORDER[0] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(player, guardEntity);
             }
 
             @Override
@@ -52,7 +52,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -63,7 +63,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 1, 8, 26) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                return EQUIPMENT_SLOT_ORDER[1] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && EQUIPMENT_SLOT_ORDER[1] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(player, guardEntity);
             }
 
             @Override
@@ -79,7 +79,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -90,7 +90,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 2, 8, 44) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                return EQUIPMENT_SLOT_ORDER[2] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && EQUIPMENT_SLOT_ORDER[2] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(player, guardEntity);
             }
 
             @Override
@@ -106,7 +106,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -117,7 +117,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 3, 8, 62) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                return EQUIPMENT_SLOT_ORDER[3] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && EQUIPMENT_SLOT_ORDER[3] == guardEntity.getPreferredEquipmentSlot(stack) && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -133,7 +133,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -144,7 +144,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 4, 77, 62) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -155,7 +155,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
@@ -167,12 +167,12 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 5, 77, 44) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerIn, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerIn, guardEntity);
             }
 
             @Override
@@ -184,7 +184,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
         this.addSlot(new Slot(guardInventory, 6, 95, 62) {
             @Override
             public boolean canInsert(ItemStack stack) {
-                if (!GuardVillagers.hotvChecker(player, guardEntity)) {
+                if (guardEntity.isEquipmentLocked() || !GuardVillagers.hotvChecker(player, guardEntity)) {
                     return false;
                 }
 
@@ -204,7 +204,7 @@ public class GuardVillagerScreenHandler extends ScreenHandler {
 
             @Override
             public boolean canTakeItems(PlayerEntity playerIn) {
-                return GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
+                return !guardEntity.isEquipmentLocked() && GuardVillagers.hotvChecker(playerInventory.player, guardEntity);
             }
         });
         for (int l = 0; l < 3; ++l) {

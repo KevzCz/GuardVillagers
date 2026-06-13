@@ -62,7 +62,7 @@
             boolean isHiredOwner = isHired
                     && guardEntity.getOwnerId() != null
                     && guardEntity.getOwnerId().equals(player.getUuid());
-            if (isHiredOwner || (!isHired && (!GuardVillagersConfig.followHero || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)))) {
+            if (guardEntity.canPlayerUseHeroControls(player) && (isHiredOwner || (!isHired && (!dev.sterner.guardvillagers.common.special.GuardEffectiveConfig.followHero(guardEntity) || guardEntity.playerHasHeroInteractionAccess(player))))) {
                 this.addDrawableChild(new GuardGuiButton(this.x + 100, this.height / 2 - 40, 20, 18, GUARD_FOLLOWING_ICONS, GUARD_NOT_FOLLOWING_ICONS, true,
                         Text.translatable("guardvillagers.gui.button.follow"),
                         (button) -> {
@@ -70,7 +70,7 @@
                         })
                 );
             }
-            if (isHiredOwner || (!isHired && (!GuardVillagersConfig.setGuardPatrolHotv || player.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)))) {
+            if (guardEntity.canPlayerUseHeroControls(player) && (isHiredOwner || (!isHired && (!dev.sterner.guardvillagers.common.special.GuardEffectiveConfig.setGuardPatrolHotv(guardEntity) || guardEntity.playerHasHeroInteractionAccess(player))))) {
                 this.addDrawableChild(new GuardGuiButton(this.x + 120, this.height / 2 - 40, 20, 18, GUARD_PATROLLING_ICONS, GUARD_NOT_PATROLLING_ICONS, false,
                         Text.translatable("guardvillagers.gui.button.patrol"),
                         (button) -> {

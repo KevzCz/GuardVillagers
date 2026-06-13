@@ -12,6 +12,8 @@ public class GuardVillagersConfig extends MidnightConfig {
     @Entry
     public static int reputationRequirement = 15;
     @Entry
+    public static int reputationLostOnAttack = 25;
+    @Entry
     public static boolean guardEntitysRunFromPolarBears = false;
     @Entry
     public static boolean guardEntitysOpenDoors = true;
@@ -21,14 +23,18 @@ public class GuardVillagersConfig extends MidnightConfig {
     public static boolean clericHealing = true;
     @Entry
     public static boolean armorerRepairGuardEntityArmor = true;
+    
+    
     @Entry
     public static boolean attackAllMobs = false;
+    
+    @Entry
+    public static List<String> mobBlackList = new ArrayList<>();
+
     @Entry
     public static boolean guardAlwaysShield = false;
     @Entry
     public static boolean friendlyFire = true;
-    @Entry
-    public static List<String> mobBlackList = new ArrayList<>();
     @Entry
     public static float amountOfHealthRegenerated = 1F;
     @Entry
@@ -52,6 +58,8 @@ public class GuardVillagersConfig extends MidnightConfig {
     @Entry
     public static boolean witchesVillager = true;
     @Entry
+    public static boolean lightningConvertsGuardToWitch = true;
+    @Entry
     public static boolean blackSmithHealing = true;
     @Entry
     public static boolean convertVillagerIfHaveHotv = false;
@@ -71,4 +79,9 @@ public class GuardVillagersConfig extends MidnightConfig {
     public static String hiringItem = "minecraft:emerald";
     @Entry
     public static int hiringItemCount = 5;
+
+    @Entry
+    public static float spellSlotScrollChance = 0.25f;
+    @Entry
+    public static int spellSlotScrollMaxTier = 3;
 }

@@ -1,0 +1,141 @@
+{
+  "required_mod": "spell_engine",
+  "spawn": {
+    "weight": 0,
+    "biomes": [
+      "#minecraft:is_overworld",
+      "minecraft:plains"
+    ],
+    "dimensions": [
+      "minecraft:overworld",
+      "minecraft:the_nether"
+    ]
+  },
+  "display": {
+    "name": "&d&lShowcase Guard &7[&fDemo&7]",
+    "name_visible": true,
+    "variant": 1
+  },
+  "behavior": {
+    "hireable": true,
+    "hero_of_the_village": true,
+    "follow_hero": true,
+    "patrolling": false,
+    "following": false,
+    "block_gui": false,
+    "lock_equipment": false,
+    "immutable_equipment": true,
+    "attack_players": false,
+    "attack_mobs": []
+  },
+  "hiring": {
+    "item": "minecraft:emerald",
+    "cost": 3
+  },
+  "loot": {
+    "use_tables": false
+  },
+  "equipment": {
+    "head": {
+      "id": "minecraft:iron_helmet",
+      "count": 1,
+      "components": {
+        "minecraft:enchantments": {
+          "levels": {
+            "minecraft:protection": 2
+          }
+        }
+      }
+    },
+    "chest": {
+      "id": "minecraft:iron_chestplate",
+      "count": 1
+    },
+    "legs": {
+      "id": "minecraft:iron_leggings",
+      "count": 1
+    },
+    "feet": {
+      "id": "minecraft:iron_boots",
+      "count": 1
+    },
+    "mainhand": [
+      {
+        "weight": 3,
+        "stack": {
+          "id": "wizards:wand_fire",
+          "count": 1,
+          "components": {
+            "minecraft:custom_name": "{\"text\":\"Showcase Wand\",\"color\":\"gold\",\"italic\":false}"
+          }
+        }
+      },
+      {
+        "weight": 1,
+        "stack": {
+          "id": "minecraft:iron_sword",
+          "count": 1
+        }
+      }
+    ],
+    "offhand": {
+      "id": "minecraft:shield",
+      "count": 1
+    }
+  },
+  "inventory": [
+    {
+      "spell_slot": true,
+      "stack": {
+        "id": "spell_engine:spell_scroll",
+        "count": 1,
+        "components": {
+          "spell_engine:spell_container": {
+            "spell_ids": [
+              "wizards:fire_meteor"
+            ]
+          },
+          "spell_engine:item_model": "wizards:item/spell_scroll/fire",
+          "minecraft:rarity": "rare"
+        }
+      }
+    },
+    {
+      "slot": 4,
+      "chance": 0.5,
+      "stack": {
+        "id": "minecraft:shield",
+        "count": 1
+      }
+    }
+  ],
+  "attributes": {
+    "minecraft:generic.max_health": 40.0,
+    "minecraft:generic.movement_speed": 0.48,
+    "minecraft:generic.attack_damage": 4.0,
+    "minecraft:generic.follow_range": 28.0
+  },
+  "config_overrides": {
+    "spellSlotScrollChance": 1.0,
+    "spellSlotScrollMaxTier": 5,
+    "healthModifier": 40.0,
+    "speedModifier": 0.48,
+    "followRangeModifier": 28.0,
+    "amountOfHealthRegenerated": 2.0,
+    "reputationRequirement": 0,
+    "reputationRequirementToBeAttacked": -10000,
+    "reputationLostOnAttack": 0,
+    "chanceToDropEquipment": 0.0,
+    "giveGuardStuffHotv": true,
+    "setGuardPatrolHotv": true
+  },
+  "entity_data": {
+    "Persistent": true,
+    "ShowcaseGuard": true,
+    "DemoNote": "Summon with /guardvillagers special summon guardvillagers:showcase"
+  },
+  "command_tags": [
+    "guardvillagers:showcase",
+    "guardvillagers:demo"
+  ]
+}

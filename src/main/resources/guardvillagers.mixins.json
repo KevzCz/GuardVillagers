@@ -2,15 +2,22 @@
   "required": true,
   "package": "dev.sterner.guardvillagers.mixin",
   "compatibilityLevel": "JAVA_17",
+  "client": [
+    "GuardEntityAnimatedPlayerMixin"
+  ],
   "mixins": [
     "MobEntityMixin",
     "ServerWorldMixin",
     "VillagerTaskListProviderMixin",
     "accessor.CrossbowItemAccessor",
+    "accessor.EntityAccessor",
+    "accessor.LivingEntityAccessor",
+    "LivingEntitySpellMeleeMixin",
     "GuardFriendlyFireMixin",
     "CrossbowItemMixin",
     "ProjectileEntityMixin",
     "EntityRelationsMixin",
+    "SpellHelperGuardMixin",
     "SpellProjectileMixin",
     "PersistentProjectileEntityMixin"
   ],

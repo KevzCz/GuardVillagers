@@ -24,6 +24,9 @@ public class GuardEatFoodGoal extends Goal {
 
     @Override
     public boolean canStart() {
+        if (guard.isSpellCastBusy()) {
+            return false;
+        }
         return guard.getHealth() < guard.getMaxHealth() && GuardEatFoodGoal.isConsumable(guard.getOffHandStack()) && guard.isEating() || guard.getHealth() < guard.getMaxHealth() && GuardEatFoodGoal.isConsumable(guard.getOffHandStack()) && guard.getTarget() == null && !guard.isAttacking();
     }
 
@@ -40,7 +43,7 @@ public class GuardEatFoodGoal extends Goal {
             }
         }
         return guard.isUsingItem() && guard.getTarget() == null && guard.getHealth() < guard.getMaxHealth() || guard.getTarget() != null && guard.getHealth() < guard.getMaxHealth() / 2 + 2 && guard.isEating();
-        // Guards will only keep eating until they're up to full health if they're not aggroed, otherwise they will just heal back above half health and then join back the fight.
+        
     }
 
     @Override

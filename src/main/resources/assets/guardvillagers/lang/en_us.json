@@ -16,6 +16,7 @@
   "guardvillagers.midnightconfig.guardArrowsHurtVillagers": "Guard Arrows Hurt Villagers",
   "guardvillagers.midnightconfig.raidAnimals": "Raiders Will Attack Animals",
   "guardvillagers.midnightconfig.witchesVillager": "Witches Will Attack Villagers",
+  "guardvillagers.midnightconfig.lightningConvertsGuardToWitch": "Lightning Converts Guards To Witches",
   "guardvillagers.midnightconfig.blackSmithHealing": "Blacksmith Will Heal Iron Golems",
   "guardvillagers.midnightconfig.convertVillagerIfHaveHotv": "Require HOTV To Convert Villagers",
   "guardvillagers.midnightconfig.guardAttackMobBlacklist": "Guard Attack Blacklist",
@@ -27,5 +28,7 @@
   "guardvillagers.hiring.hired": "Guard hired! Sneak + right-click to release.",
   "guardvillagers.hiring.released": "Guard released.",
   "guardvillagers.hiring.not_enough": "You need %s %s to hire this guard.",
-  "guardvillagers.hiring.already_hired": "This guard is already hired by someone else."
+  "guardvillagers.hiring.already_hired": "This guard is already hired by someone else.",
+  "guardvillagers.midnightconfig.spellSlotScrollChance": "Spell Slot Scroll Chance",
+  "guardvillagers.midnightconfig.spellSlotScrollMaxTier": "Spell Slot Scroll Max Tier"
 }

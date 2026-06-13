@@ -44,15 +44,28 @@ public class MeleeSpellHandler {
         }
 
         for (GuardSpellManager.CategorizedSpell categorizedSpell : meleeSpells) {
+            if (guard.isSpellOnCooldown(categorizedSpell.spellId())) {
+                continue;
+            }
             if (categorizedSpell.isPassive()) {
-                castPassiveMeleeSpell(categorizedSpell, target);
+                if (castPassiveMeleeSpell(categorizedSpell, target)) {
+                    guard.setSpellCooldown(
+                            categorizedSpell.spellId(),
+                            BaseSpellGoal.resolveCooldownTicks(guard, categorizedSpell.entry())
+                    );
+                }
             } else {
-                castMeleeSpell(categorizedSpell, target);
+                if (castMeleeSpell(categorizedSpell, target)) {
+                    guard.setSpellCooldown(
+                            categorizedSpell.spellId(),
+                            BaseSpellGoal.resolveCooldownTicks(guard, categorizedSpell.entry())
+                    );
+                }
             }
         }
     }
 
-    private void castPassiveMeleeSpell(GuardSpellManager.CategorizedSpell categorizedSpell, LivingEntity primaryTarget) {
+    private boolean castPassiveMeleeSpell(GuardSpellManager.CategorizedSpell categorizedSpell, LivingEntity primaryTarget) {
         Spell spell = categorizedSpell.entry().value();
 
         if (spell.passive == null || spell.passive.triggers == null) {
@@ -61,17 +74,17 @@ public class MeleeSpellHandler {
                         "  ⚠️ " + categorizedSpell.spellId().getPath() + " has no passive triggers",
                         Formatting.YELLOW);
             }
-            return;
+            return false;
         }
 
-        // For direct melee weapon hits, only trigger MELEE_IMPACT passives
-        // SPELL_IMPACT_SPECIFIC passives are handled by SpellDelivery when spells are cast
+        
+        
         boolean hasMeleeImpactTrigger = false;
         for (Spell.Trigger trigger : spell.passive.triggers) {
             if (trigger.type == Spell.Trigger.Type.MELEE_IMPACT) {
                 hasMeleeImpactTrigger = true;
                 
-                // Apply chance check for melee impact triggers
+                
                 if (trigger.chance > 0 && trigger.chance < 1.0f) {
                     if (guard.getRandom().nextFloat() > trigger.chance) {
                         if (!guard.getWorld().isClient()) {
@@ -79,7 +92,7 @@ public class MeleeSpellHandler {
                                     "  🎲 " + categorizedSpell.spellId().getPath() + " chance failed (" + (trigger.chance * 100) + "%)",
                                     Formatting.GRAY);
                         }
-                        return;
+                        return false;
                     }
                 }
                 break;
@@ -87,9 +100,9 @@ public class MeleeSpellHandler {
         }
 
         if (!hasMeleeImpactTrigger) {
-            // Silently skip - this passive is meant for spell impacts, not melee hits
-            // Don't spam the debug log with warnings
-            return;
+            
+            
+            return false;
         }
 
         logMeleeCast(categorizedSpell.spellId(), spell);
@@ -140,16 +153,16 @@ public class MeleeSpellHandler {
 
         SpellHelper.ImpactContext context = createContext(spell);
 
-        // Handle different delivery types for passive melee spells
+        
         if (spell.deliver != null) {
-            switch (spell.deliver.type) {
+            return switch (spell.deliver.type) {
                 case CUSTOM -> {
                     if (!guard.getWorld().isClient()) {
                         GuardDebugManager.broadcast(guard,
                                 "  🔧 Executing CUSTOM delivery with handler: " + spell.deliver.custom.handler,
                                 Formatting.LIGHT_PURPLE);
                     }
-                    castMeleeCustom(spell, categorizedSpell.entry(), context, primaryTarget);
+                    yield castMeleeCustom(spell, categorizedSpell.entry(), context, primaryTarget);
                 }
                 case PROJECTILE -> {
                     if (!guard.getWorld().isClient()) {
@@ -157,7 +170,7 @@ public class MeleeSpellHandler {
                                 "  🔧 Executing PROJECTILE delivery",
                                 Formatting.LIGHT_PURPLE);
                     }
-                    castMeleeProjectiles(spell, categorizedSpell.entry(), context, primaryTarget);
+                    yield castMeleeProjectiles(spell, categorizedSpell.entry(), context, primaryTarget);
                 }
                 case CLOUD -> {
                     if (!guard.getWorld().isClient()) {
@@ -165,7 +178,7 @@ public class MeleeSpellHandler {
                                 "  🔧 Executing CLOUD delivery",
                                 Formatting.LIGHT_PURPLE);
                     }
-                    castMeleeCloud(spell, categorizedSpell.entry(), context, primaryTarget);
+                    yield castMeleeCloud(spell, categorizedSpell.entry(), context, primaryTarget);
                 }
                 default -> {
                     if (!guard.getWorld().isClient()) {
@@ -173,27 +186,26 @@ public class MeleeSpellHandler {
                                 "  🔧 Executing DIRECT delivery",
                                 Formatting.LIGHT_PURPLE);
                     }
-                    castPassiveDirect(spell, categorizedSpell.entry(), context, primaryTarget);
+                    yield castPassiveDirect(spell, categorizedSpell.entry(), context, primaryTarget);
                 }
-            }
-        } else {
-            // No delivery type - handle based on target type
-            if (!guard.getWorld().isClient()) {
-                GuardDebugManager.broadcast(guard,
-                        "  🔧 Executing impact based on target type",
-                        Formatting.LIGHT_PURPLE);
-            }
-            castPassiveDirect(spell, categorizedSpell.entry(), context, primaryTarget);
+            };
         }
+
+        
+        if (!guard.getWorld().isClient()) {
+            GuardDebugManager.broadcast(guard,
+                    "  🔧 Executing impact based on target type",
+                    Formatting.LIGHT_PURPLE);
+        }
+        return castPassiveDirect(spell, categorizedSpell.entry(), context, primaryTarget);
     }
     
-    /**
-     * Execute a passive spell based on its target type.
-     * Handles FROM_TRIGGER, AREA, and direct impacts.
-     */
-    private void castPassiveDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    
+
+    private boolean castPassiveDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+        boolean anySuccess = false;
         if (spell.target == null || spell.target.type == Spell.Target.Type.FROM_TRIGGER) {
-            // FROM_TRIGGER: apply directly to the triggering target
+            
             boolean success = SpellHelper.performImpacts(
                     guard.getWorld(),
                     guard,
@@ -203,6 +215,7 @@ public class MeleeSpellHandler {
                     spell.impacts,
                     context.position(primaryTarget.getPos().add(0, primaryTarget.getHeight() / 2.0, 0))
             );
+            anySuccess = success;
             
             if (!guard.getWorld().isClient()) {
                 GuardDebugManager.broadcast(guard,
@@ -210,9 +223,9 @@ public class MeleeSpellHandler {
                         success ? Formatting.GREEN : Formatting.RED);
             }
         } else if (spell.target.type == Spell.Target.Type.AREA) {
-            // AREA: hit all targets in range
+            
             double radius = spell.range > 0 ? spell.range : 3.0;
-            // Handle negative range as relative to melee hit (swirling_melee has range: -0.5)
+            
             if (spell.range < 0) {
                 radius = 3.0 + Math.abs(spell.range);
             }
@@ -239,6 +252,7 @@ public class MeleeSpellHandler {
                         spell.impacts,
                         context.position(target.getPos().add(0, target.getHeight() / 2.0, 0))
                 );
+                anySuccess |= success;
                 
                 if (!guard.getWorld().isClient()) {
                     GuardDebugManager.broadcast(guard,
@@ -247,19 +261,20 @@ public class MeleeSpellHandler {
                 }
             }
         } else {
-            // Default: apply to primary target
-            castMeleeDirect(spell, spellEntry, context);
+            
+            anySuccess = castMeleeDirect(spell, spellEntry, context);
         }
         
         playReleaseSound(spell);
+        return anySuccess;
     }
     
-    /**
-     * Cast a melee spell that creates a cloud effect.
-     */
-    private void castMeleeCloud(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    
+
+    private boolean castMeleeCloud(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
         Vec3d targetPos = primaryTarget.getPos();
         
+        boolean success = false;
         try {
             SpellHelper.placeCloud(
                     guard.getWorld(),
@@ -269,6 +284,7 @@ public class MeleeSpellHandler {
                     spellEntry,
                     context.position(targetPos)
             );
+            success = true;
             
             if (!guard.getWorld().isClient()) {
                 GuardDebugManager.broadcast(guard,
@@ -284,9 +300,10 @@ public class MeleeSpellHandler {
         }
         
         playReleaseSound(spell);
+        return success;
     }
 
-    private void castMeleeCustom(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castMeleeCustom(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
         Vec3d targetLocation = primaryTarget.getPos().add(0.0, primaryTarget.getHeight() / 2.0, 0.0);
         SpellHelper.ImpactContext targetContext = context.position(targetLocation);
 
@@ -325,9 +342,10 @@ public class MeleeSpellHandler {
         }
 
         playReleaseSound(spell);
+        return success;
     }
 
-    private void castMeleeDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context) {
+    private boolean castMeleeDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context) {
         double radius = spell.range > 0 ? spell.range : 5.0;
         List<LivingEntity> targets = findConeTargets(radius);
 
@@ -337,6 +355,7 @@ public class MeleeSpellHandler {
                     Formatting.GRAY);
         }
 
+        boolean anySuccess = false;
         for (LivingEntity target : targets) {
             boolean success = SpellHelper.performImpacts(
                     guard.getWorld(),
@@ -347,6 +366,7 @@ public class MeleeSpellHandler {
                     spell.impacts,
                     context
             );
+            anySuccess |= success;
 
             if (!guard.getWorld().isClient()) {
                 if (success) {
@@ -362,6 +382,7 @@ public class MeleeSpellHandler {
         }
 
         playReleaseSound(spell);
+        return anySuccess;
     }
 
     private void logMeleeCast(Identifier spellId, Spell spell) {
@@ -377,7 +398,7 @@ public class MeleeSpellHandler {
         }
     }
 
-    private void castMeleeSpell(GuardSpellManager.CategorizedSpell categorizedSpell, LivingEntity primaryTarget) {
+    private boolean castMeleeSpell(GuardSpellManager.CategorizedSpell categorizedSpell, LivingEntity primaryTarget) {
         Spell spell = categorizedSpell.entry().value();
 
         logMeleeCast(categorizedSpell.spellId(), spell);
@@ -385,20 +406,17 @@ public class MeleeSpellHandler {
         SpellHelper.ImpactContext context = createContext(spell);
 
         if (spell.deliver != null) {
-            switch (spell.deliver.type) {
+            return switch (spell.deliver.type) {
                 case PROJECTILE -> castMeleeProjectiles(spell, categorizedSpell.entry(), context, primaryTarget);
                 case DIRECT -> castMeleeDirect(spell, categorizedSpell.entry(), context);
                 case CUSTOM -> castMeleeCustom(spell, categorizedSpell.entry(), context, primaryTarget);
                 default -> castMeleeDirect(spell, categorizedSpell.entry(), context);
-            }
-        } else {
-            castMeleeDirect(spell, categorizedSpell.entry(), context);
+            };
         }
+        return castMeleeDirect(spell, categorizedSpell.entry(), context);
     }
 
-
-
-    private void castMeleeProjectiles(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castMeleeProjectiles(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
         double range = spell.range > 0 ? spell.range : DEFAULT_MELEE_RANGE;
         int cap = (spell.target != null && spell.target.cap > 0) ? spell.target.cap : DEFAULT_TARGET_CAP;
 
@@ -415,9 +433,8 @@ public class MeleeSpellHandler {
         }
 
         playLaunchSound(spell);
+        return count > 0;
     }
-
-
 
     private List<LivingEntity> findMeleeTargets(double range, LivingEntity primaryTarget) {
         return guard.getWorld().getEntitiesByClass(
@@ -481,8 +498,6 @@ public class MeleeSpellHandler {
                 .target(SpellHelper.focusMode(spell));
     }
 
-
-
     private void playLaunchSound(Spell spell) {
         if (spell.deliver == null || spell.deliver.projectile == null) return;
         if (spell.deliver.projectile.launch_properties == null) return;
@@ -490,8 +505,8 @@ public class MeleeSpellHandler {
 
         Identifier soundId = Identifier.tryParse(spell.deliver.projectile.launch_properties.sound.id());
         if (soundId != null) {
-            SoundEvent soundEvent = Registries.SOUND_EVENT.get(soundId);
-            guard.getWorld().playSound(null, guard.getBlockPos(), soundEvent, SoundCategory.HOSTILE, 1.0f, 1.0f);
+            Registries.SOUND_EVENT.getEntry(soundId).ifPresent(entry ->
+                    guard.getWorld().playSound(null, guard.getBlockPos(), entry.value(), SoundCategory.HOSTILE, 1.0f, 1.0f));
         }
     }
 
@@ -500,15 +515,15 @@ public class MeleeSpellHandler {
 
         Identifier soundId = Identifier.tryParse(spell.release.sound.id());
         if (soundId != null) {
-            SoundEvent soundEvent = Registries.SOUND_EVENT.get(soundId);
-            guard.getWorld().playSound(
-                    null,
-                    guard.getBlockPos(),
-                    soundEvent,
-                    SoundCategory.PLAYERS,
-                    1.0F,
-                    1.0F
-            );
+            Registries.SOUND_EVENT.getEntry(soundId).ifPresent(entry ->
+                    guard.getWorld().playSound(
+                            null,
+                            guard.getBlockPos(),
+                            entry.value(),
+                            SoundCategory.PLAYERS,
+                            1.0F,
+                            1.0F
+                    ));
         }
     }
 }

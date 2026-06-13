@@ -1,5 +1,6 @@
 package dev.sterner.guardvillagers.client.model;
 
+import dev.sterner.guardvillagers.client.animation.GuardAnimationState;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.client.model.*;
 import net.minecraft.client.render.entity.model.BipedEntityModel;
@@ -7,7 +8,6 @@ import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.item.ArmorItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.RangedWeaponItem;
-import net.minecraft.util.Arm;
 import net.minecraft.util.Hand;
 import net.minecraft.util.UseAction;
 import net.minecraft.util.math.MathHelper;
@@ -65,7 +65,28 @@ public class GuardVillagerModel extends BipedEntityModel<GuardEntity> {
 
     @Override
     public void setAngles(GuardEntity entityIn, float limbSwing, float limbSwingAmount, float ageInTicks, float netbipedHeadYaw, float bipedHeadPitch) {
-        super.setAngles(entityIn, limbSwing, limbSwingAmount, ageInTicks, netbipedHeadYaw, bipedHeadPitch);
+        GuardAnimationState state = GuardAnimationState.getOrCreate(entityIn);
+
+        if (entityIn.age != state.lastAge) {
+            state.updateFor(entityIn);
+            state.lastAge = entityIn.age;
+        }
+
+        boolean poseBlendActive = state.isDrivingPose(entityIn);
+
+        state.clearEmoteSupplier(this);
+
+        GuardAnimationState.resetModelDefaults(
+                this.head, this.body,
+                this.rightArm, this.leftArm,
+                this.rightLeg, this.leftLeg,
+                this.hat);
+
+        if (poseBlendActive) {
+            super.setAngles(entityIn, limbSwing, limbSwingAmount, ageInTicks, 0.0F, 0.0F);
+        } else {
+            super.setAngles(entityIn, limbSwing, limbSwingAmount, ageInTicks, netbipedHeadYaw, bipedHeadPitch);
+        }
 
         ItemStack itemstack = entityIn.getStackInHand(Hand.MAIN_HAND);
         boolean isHoldingShootable = itemstack.getItem() instanceof RangedWeaponItem;
@@ -80,70 +101,13 @@ public class GuardVillagerModel extends BipedEntityModel<GuardEntity> {
             this.rightLeg.pitch = MathHelper.lerp(f1, this.rightLeg.pitch, -1.40F);
         }
 
-        if (entityIn.getMainArm() == Arm.RIGHT) {
-            this.eatingAnimationRightHand(Hand.MAIN_HAND, entityIn, ageInTicks);
-            this.eatingAnimationLeftHand(Hand.OFF_HAND, entityIn, ageInTicks);
-        } else {
-            this.eatingAnimationRightHand(Hand.OFF_HAND, entityIn, ageInTicks);
-            this.eatingAnimationLeftHand(Hand.MAIN_HAND, entityIn, ageInTicks);
-        }
+        this.eatingAnimationRightHand(Hand.MAIN_HAND, entityIn, ageInTicks);
+        this.eatingAnimationLeftHand(Hand.OFF_HAND, entityIn, ageInTicks);
 
-        boolean hasCastingFlag = false;
-        boolean isMeleeCasting = false;
-        try {
-            hasCastingFlag = entityIn.isCastingSpell();
-            isMeleeCasting = entityIn.isCastingMeleeSpell();
-        } catch (Throwable ignored) {}
-
-        String key = entityIn.getMainHandStack().getItem().getTranslationKey();
-        boolean wandLike = key.contains("wand_") || key.contains("staff_");
-        boolean usingWandNow = entityIn.isUsingItem() && (wandLike || entityIn.isPriest());
-
-        // Melee archetype spell casting animation (spinning/swinging)
-        if (hasCastingFlag && isMeleeCasting) {
-            float t = ageInTicks * 0.5F + entityIn.getId() * 0.10F;
-            
-            float spinSpeed = 2.5F;
-            float spinAngle = t * spinSpeed;
-            
-            this.rightArm.pitch = -0.4F;
-            this.rightArm.yaw = 0.8F + 0.3F * MathHelper.sin(spinAngle);
-            this.rightArm.roll = 0.2F;
-            
-            this.leftArm.pitch = -0.4F;
-            this.leftArm.yaw = -0.8F - 0.3F * MathHelper.sin(spinAngle);
-            this.leftArm.roll = -0.2F;
-            
-            this.body.yaw = MathHelper.sin(spinAngle) * 0.15F;
-            this.body.roll = 0.0F;
-            
-            if (this.hat != null) {
-                this.hat.copyTransform(this.head);
-            }
-        }
-        // Magic/wand spell casting animation
-        else if (hasCastingFlag || usingWandNow) {
-            float t = ageInTicks * 0.35F + entityIn.getId() * 0.10F;
-            float raise = -1.45F;
-            float swirlS = MathHelper.sin(t);
-            float swirlC = MathHelper.cos(t);
-
-            this.rightArm.pitch = raise + 0.15F * MathHelper.sin(t * 0.5F);
-            this.leftArm.pitch  = raise + 0.15F * MathHelper.cos(t * 0.5F);
-
-            this.rightArm.yaw = 0.60F + 0.35F * swirlS;
-            this.leftArm.yaw  = -0.60F - 0.35F * swirlS;
-
-            this.rightArm.roll = 0.50F + 0.35F * swirlC;
-            this.leftArm.roll  = -0.50F - 0.35F * swirlC;
-
-            this.body.roll = 0.06F * MathHelper.sin(t * 0.75F);
-            if (this.hat != null) {
-                this.hat.copyTransform(this.head);
-            }
+        if (poseBlendActive) {
+            state.applyToModel(this, ageInTicks - (float) entityIn.age, entityIn);
         }
     }
-
 
     public void eatingAnimationRightHand(Hand hand, GuardEntity entity, float ageInTicks) {
         ItemStack itemstack = entity.getStackInHand(hand);
@@ -174,6 +138,5 @@ public class GuardVillagerModel extends BipedEntityModel<GuardEntity> {
             this.hat.copyTransform(head);
         }
     }
-
 
 }

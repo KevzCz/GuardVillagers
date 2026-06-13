@@ -22,6 +22,13 @@ public final class CombatMovementHelper {
             boolean inAimPhase,
             boolean canRun
     ) {
+        if (guard.isCastingMeleeSpell()) {
+            guard.getNavigation().stop();
+            guard.getMoveControl().strafeTo(0.0F, 0.0F);
+            guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+            return new MovementResult(seeTime, updatePathDelay);
+        }
+
         var zone = HolyZoneHelper.findNearby(guard, 32.0);
         if (zone != null) {
             float r = HolyZoneHelper.radiusOf(zone, 5.0F);
@@ -47,11 +54,32 @@ public final class CombatMovementHelper {
             }
         }
 
-
         int s = seeTime;
         boolean hasSeenRecently = s > 0;
         if (canSee != hasSeenRecently) s = 0;
         if (canSee) ++s; else --s;
+
+        if (guard.getSpellManager().shouldUseProjectileCasting()
+                && !guard.getSpellManager().hasCastablePhysicalMeleeSpell()
+                && !SpellbladeCombatHelper.isActive(guard)) {
+            var backline = SupportBacklineHelper.desiredBacklinePosition(guard, target);
+            if (backline.isPresent()) {
+                var pos = backline.get();
+                int upd = updatePathDelay;
+                if (guard.squaredDistanceTo(pos.x, pos.y, pos.z) > 4.0D) {
+                    --upd;
+                    if (upd <= 0) {
+                        guard.getNavigation().startMovingTo(pos.x, pos.y, pos.z, canRun ? 1.0D : 0.5D);
+                        upd = PATHFINDING_DELAY_RANGE.get(guard.getRandom());
+                    }
+                } else {
+                    guard.getNavigation().stop();
+                }
+                guard.lookAtEntity(target, 30.0F, 30.0F);
+                guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+                return new MovementResult(s, upd);
+            }
+        }
 
         double distanceSq = guard.squaredDistanceTo(target);
         float forward = 0.0F;
@@ -91,6 +119,80 @@ public final class CombatMovementHelper {
         guard.getLookControl().lookAt(target, 30.0F, 30.0F);
 
         return new MovementResult(s, upd);
+    }
+
+    public static MovementResult applyStaffDefensiveMovement(
+            GuardEntity guard,
+            LivingEntity target,
+            boolean canSee,
+            int seeTime,
+            int updatePathDelay
+    ) {
+        var zone = HolyZoneHelper.findNearby(guard, 32.0);
+        if (zone != null) {
+            float r = HolyZoneHelper.radiusOf(zone, 5.0F);
+
+            int s = seeTime;
+            boolean hadSight = s > 0;
+            if (canSee != hadSight) {
+                s = 0;
+            }
+            s = canSee ? (s + 1) : (s - 1);
+
+            if (!HolyZoneHelper.inside(guard, zone, r)) {
+                HolyZoneHelper.steerTowardsIfOutside(guard, zone, r, 0.8D);
+            } else {
+                HolyZoneHelper.stopInside(guard, zone, r);
+                HolyZoneHelper.softLeashInside(guard, zone, r);
+            }
+            guard.lookAtEntity(target, 30.0F, 30.0F);
+            guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+            return new MovementResult(s, updatePathDelay);
+        }
+
+        int s = seeTime;
+        boolean hasSeenRecently = s > 0;
+        if (canSee != hasSeenRecently) {
+            s = 0;
+        }
+        if (canSee) {
+            ++s;
+        } else {
+            --s;
+        }
+
+        var backline = SupportBacklineHelper.desiredBacklinePosition(guard, target);
+        if (backline.isPresent()) {
+            var pos = backline.get();
+            int upd = updatePathDelay;
+            if (guard.squaredDistanceTo(pos.x, pos.y, pos.z) > 4.0D) {
+                --upd;
+                if (upd <= 0) {
+                    guard.getNavigation().startMovingTo(pos.x, pos.y, pos.z, 0.8D);
+                    upd = PATHFINDING_DELAY_RANGE.get(guard.getRandom());
+                }
+            } else {
+                guard.getNavigation().stop();
+            }
+            guard.lookAtEntity(target, 30.0F, 30.0F);
+            guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+            return new MovementResult(s, upd);
+        }
+
+        double distanceSq = guard.squaredDistanceTo(target);
+        guard.getNavigation().stop();
+        if (distanceSq <= 4.0D) {
+            guard.getMoveControl().strafeTo(-3.0F, guard.getRandom().nextBoolean() ? 0.3F : -0.3F);
+        } else if (distanceSq <= 16.0D * 16.0D) {
+            float sideways = guard.getRandom().nextBoolean() ? 0.5F : -0.5F;
+            guard.getMoveControl().strafeTo(-0.2F, sideways);
+        } else {
+            guard.getMoveControl().strafeTo(0.0F, 0.0F);
+        }
+
+        guard.lookAtEntity(target, 30.0F, 30.0F);
+        guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+        return new MovementResult(s, 0);
     }
 
     public static MovementResult applyRangedCombatMovement(
@@ -168,6 +270,13 @@ public final class CombatMovementHelper {
             boolean backward
     ) {
         if (actor instanceof GuardEntity guard) {
+            if (guard.isCastingSpell() || guard.isCastingMeleeSpell()) {
+                actor.getNavigation().stop();
+                actor.getMoveControl().strafeTo(0.0F, 0.0F);
+                actor.getLookControl().lookAt(target, 30.0F, 30.0F);
+                return new BowMovementResult(targetSeeingTicker, combatTicks, movingToLeft, backward);
+            }
+
             var zone = HolyZoneHelper.findNearby(guard, 32.0);
             if (zone != null) {
                 float r = HolyZoneHelper.radiusOf(zone, 5.0F);
@@ -232,6 +341,23 @@ public final class CombatMovementHelper {
             boolean inCastPhase,
             float meleeRange
     ) {
+        return applyMeleeCombatMovement(
+                guard, target, canSee, seeTime, updatePathDelay,
+                strafeCooldown, strafeLeft, inCastPhase, meleeRange, 1.0f);
+    }
+
+    public static MeleeMovementResult applyMeleeCombatMovement(
+            GuardEntity guard,
+            LivingEntity target,
+            boolean canSee,
+            int seeTime,
+            int updatePathDelay,
+            int strafeCooldown,
+            boolean strafeLeft,
+            boolean inCastPhase,
+            float meleeRange,
+            float channelMovementSpeed
+    ) {
         var zone = HolyZoneHelper.findNearby(guard, 32.0);
         if (zone != null) {
             float r = HolyZoneHelper.radiusOf(zone, 5.0F);
@@ -264,18 +390,17 @@ public final class CombatMovementHelper {
         boolean strafeDir = strafeLeft;
 
         if (inCastPhase) {
-            guard.getNavigation().stop();
-            if (strafeCd > 0) {
-                strafeCd--;
-            } else if (guard.getRandom().nextInt(20) == 0) {
-                strafeDir = !strafeDir;
-                strafeCd = 10;
+            guard.getMoveControl().strafeTo(0.0F, 0.0F);
+            if (channelMovementSpeed <= 0f) {
+                guard.getNavigation().stop();
+                return new MeleeMovementResult(s, upd, strafeCd, strafeDir);
             }
-
-            if (strafeCd > 0) {
-                guard.getMoveControl().strafeTo(0.0F, strafeDir ? 0.3F : -0.3F);
+            float moveScale = Math.max(1.0f, channelMovementSpeed);
+            if (moveScale > 1.0f && distSq > meleeRange * meleeRange * 0.25) {
+                guard.getNavigation().startMovingTo(target, moveScale * 0.55D);
+            } else {
+                guard.getNavigation().stop();
             }
-
             return new MeleeMovementResult(s, upd, strafeCd, strafeDir);
         }
 
@@ -309,6 +434,151 @@ public final class CombatMovementHelper {
         }
 
         return new MeleeMovementResult(s, upd, strafeCd, strafeDir);
+    }
+
+    public static MeleeMovementResult applySpellbladeMovement(
+            GuardEntity guard,
+            LivingEntity target,
+            SpellbladeCombatHelper.Action action,
+            boolean canSee,
+            int seeTime,
+            int updatePathDelay,
+            int strafeCooldown,
+            boolean strafeLeft,
+            boolean inCastPhase
+    ) {
+        if (inCastPhase) {
+            guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+            if (action == SpellbladeCombatHelper.Action.MELEE_SPELL) {
+                return applyMeleeCombatMovement(
+                        guard, target, canSee, seeTime, updatePathDelay,
+                        strafeCooldown, strafeLeft, true, SpellbladeCombatHelper.MELEE_SPELL_RANGE);
+            }
+            guard.getNavigation().stop();
+            guard.getMoveControl().strafeTo(0.0F, 0.0F);
+            return new MeleeMovementResult(seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+        }
+
+        return switch (action) {
+            case MELEE_SPELL, MELEE_DUEL, PURSUE, WAIT -> applySpellbladeMeleeChase(
+                    guard, target, canSee, seeTime, strafeCooldown, strafeLeft);
+            case OPEN_FOR_MAGIC -> applySpellbladeOpenForMagic(
+                    guard, target, seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+            case MAGIC_SPELL -> applySpellbladeMagicApproach(
+                    guard, target, canSee, seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+            case REPOSITION -> {
+                guard.getMoveControl().strafeTo(0.0F, 0.0F);
+                guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+                yield new MeleeMovementResult(seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+            }
+            default -> applySpellbladeMeleeChase(
+                    guard, target, canSee, seeTime, strafeCooldown, strafeLeft);
+        };
+    }
+
+    private static MeleeMovementResult applySpellbladeMeleeChase(
+            GuardEntity guard,
+            LivingEntity target,
+            boolean canSee,
+            int seeTime,
+            int strafeCooldown,
+            boolean strafeLeft
+    ) {
+        int s = seeTime;
+        boolean hadSight = s > 0;
+        if (canSee != hadSight) {
+            s = 0;
+        }
+        if (canSee) {
+            s++;
+        } else {
+            s--;
+        }
+
+        float dist = guard.distanceTo(target);
+        guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+        guard.getMoveControl().strafeTo(0.0F, 0.0F);
+
+        boolean shouldClose = dist > SpellbladeCombatHelper.BLADE_RANGE + 0.35F || !canSee || s < 3;
+        if (shouldClose) {
+            guard.getNavigation().startMovingTo(target, 1.2D);
+        } else {
+            guard.getNavigation().stop();
+        }
+
+        return new MeleeMovementResult(s, 0, strafeCooldown, strafeLeft);
+    }
+
+    private static MeleeMovementResult applySpellbladeOpenForMagic(
+            GuardEntity guard,
+            LivingEntity target,
+            int seeTime,
+            int updatePathDelay,
+            int strafeCooldown,
+            boolean strafeLeft
+    ) {
+        double distSq = guard.squaredDistanceTo(target);
+        float comfortMinSq = SpellbladeCombatHelper.MAGIC_COMFORT_MIN * SpellbladeCombatHelper.MAGIC_COMFORT_MIN;
+        guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+
+        if (distSq < comfortMinSq) {
+            guard.getNavigation().stop();
+            guard.getMoveControl().strafeTo(-0.55F, guard.getRandom().nextBoolean() ? 0.2F : -0.2F);
+        } else {
+            guard.getMoveControl().strafeTo(0.0F, 0.0F);
+            int upd = updatePathDelay;
+            --upd;
+            if (upd <= 0) {
+                guard.getNavigation().startMovingTo(target, 1.0D);
+                upd = PATHFINDING_DELAY_RANGE.get(guard.getRandom());
+            }
+            return new MeleeMovementResult(seeTime, upd, strafeCooldown, strafeLeft);
+        }
+
+        return new MeleeMovementResult(seeTime, updatePathDelay, strafeCooldown, strafeLeft);
+    }
+
+    private static MeleeMovementResult applySpellbladeMagicApproach(
+            GuardEntity guard,
+            LivingEntity target,
+            boolean canSee,
+            int seeTime,
+            int updatePathDelay,
+            int strafeCooldown,
+            boolean strafeLeft
+    ) {
+        int s = seeTime;
+        boolean hadSight = s > 0;
+        if (canSee != hadSight) {
+            s = 0;
+        }
+        if (canSee) {
+            s++;
+        } else {
+            s--;
+        }
+
+        double distSq = guard.squaredDistanceTo(target);
+        float comfortMinSq = SpellbladeCombatHelper.MAGIC_COMFORT_MIN * SpellbladeCombatHelper.MAGIC_COMFORT_MIN;
+        float comfortMaxSq = SpellbladeCombatHelper.MAGIC_COMFORT_MAX * SpellbladeCombatHelper.MAGIC_COMFORT_MAX;
+        int upd = updatePathDelay;
+
+        if (distSq < comfortMinSq) {
+            guard.getNavigation().stop();
+            guard.getMoveControl().strafeTo(-0.45F, 0.0F);
+        } else if (distSq > comfortMaxSq || s < 5) {
+            --upd;
+            if (upd <= 0) {
+                guard.getNavigation().startMovingTo(target, 1.0D);
+                upd = PATHFINDING_DELAY_RANGE.get(guard.getRandom());
+            }
+        } else {
+            upd = 0;
+            guard.getNavigation().stop();
+        }
+
+        guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+        return new MeleeMovementResult(s, upd, strafeCooldown, strafeLeft);
     }
 
     public record MovementResult(int seeTime, int updatePathDelay) {}

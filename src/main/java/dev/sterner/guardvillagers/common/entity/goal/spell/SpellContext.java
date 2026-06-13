@@ -20,11 +20,6 @@ public record SpellContext(
         LivingEntity target,
         SpellHelper.ImpactContext impactContext
 ) {
-    /**
-     * Returns the augmented impacts list for this spell context.
-     * If the caster is a GuardEntity, MODIFIER spell PREPEND/APPEND impacts are applied.
-     * Falls back to spell.impacts for non-guard casters.
-     */
     public List<Spell.Impact> getImpacts() {
         if (caster instanceof GuardEntity guard) {
             return guard.getSpellManager().getAugmentedImpacts(entry);
@@ -65,36 +60,39 @@ public record SpellContext(
             return this;
         }
 
-        // File: SpellContext.java
         public Builder buildImpactContext() {
             if (spell != null && caster != null) {
                 SpellPower.Result powerResult = SpellPower.getSpellPower(spell.school, caster);
 
                 if (caster instanceof GuardEntity guard && !caster.getWorld().isClient()) {
-                    double rawAttribute = 0.0;
-                    if (spell.school.attributeEntry != null && guard.getAttributes().hasAttribute(spell.school.attributeEntry)) {
-                        rawAttribute = guard.getAttributeValue(spell.school.attributeEntry);
-                    }
-
-                    // Apply modifier spell power bonuses
                     if (entry != null) {
                         SpellPower.Result augmented = guard.getSpellManager().getAugmentedPower(entry);
                         if (augmented.baseValue() != powerResult.baseValue()
                                 || augmented.criticalChance() != powerResult.criticalChance()
                                 || augmented.criticalDamage() != powerResult.criticalDamage()) {
-                            GuardDebugManager.broadcast(guard,
-                                    "⚡ Modifier power applied: " + powerResult.baseValue() + " → " + augmented.baseValue(),
-                                    Formatting.GOLD);
+                            if (GuardDebugManager.hasWatchers(guard)) {
+                                double before = powerResult.baseValue();
+                                GuardDebugManager.broadcast(guard,
+                                        "⚡ Modifier power applied: " + before + " → " + augmented.baseValue(),
+                                        Formatting.GOLD);
+                            }
                             powerResult = augmented;
                         }
                     }
 
-                    GuardDebugManager.broadcast(guard,
-                            "🔍 Power Debug - School: " + spell.school.id +
-                                    " | Raw Attribute: " + rawAttribute +
-                                    " | Calculated Power: " + powerResult.baseValue() +
-                                    " | Item: " + guard.getMainHandStack().getItem().getName().getString(),
-                            Formatting.YELLOW);
+                    if (GuardDebugManager.hasWatchers(guard)) {
+                        double rawAttribute = 0.0;
+                        if (spell.school.attributeEntry != null
+                                && guard.getAttributes().hasAttribute(spell.school.attributeEntry)) {
+                            rawAttribute = guard.getAttributeValue(spell.school.attributeEntry);
+                        }
+                        GuardDebugManager.broadcast(guard,
+                                "🔍 Power Debug - School: " + spell.school.id +
+                                        " | Raw Attribute: " + rawAttribute +
+                                        " | Calculated Power: " + powerResult.baseValue() +
+                                        " | Item: " + guard.getMainHandStack().getItem().getName().getString(),
+                                Formatting.YELLOW);
+                    }
                 }
 
                 this.impactContext = new SpellHelper.ImpactContext()

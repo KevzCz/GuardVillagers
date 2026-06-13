@@ -25,6 +25,9 @@ public record GuardPatrolPacket(int guardId, boolean pressed) implements CustomP
 
         Entity entity = context.player().getWorld().getEntityById(guardId);
         if (entity instanceof GuardEntity guardEntity) {
+            if (!guardEntity.canPlayerUseHeroControls(context.player())) {
+                return;
+            }
             BlockPos pos = guardEntity.getBlockPos();
             if (guardEntity.getBlockPos() != null) {
                 guardEntity.setPatrolPos(pos);

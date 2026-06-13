@@ -4,6 +4,7 @@ import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.passive.IronGolemEntity;
 import net.minecraft.entity.passive.VillagerEntity;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
@@ -128,6 +129,9 @@ public abstract class BaseHealerGoal extends BaseSpellGoal {
     protected static boolean isAlly(GuardEntity self, LivingEntity e) {
         if (e == null || !e.isAlive() || e == self) return false;
 
+        if (self.isHired() && self.isOwner(e)) {
+            return true;
+        }
         return (e instanceof VillagerEntity)
                 || (e instanceof GuardEntity)
                 || (e instanceof IronGolemEntity);
@@ -136,7 +140,7 @@ public abstract class BaseHealerGoal extends BaseSpellGoal {
     protected static class Cluster {
         public final boolean valid;
         public final Vec3d center;
-        final int size;
+        public final int size;
 
         Cluster(boolean v, Vec3d c, int s) {
             valid = v;

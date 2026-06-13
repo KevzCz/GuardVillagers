@@ -13,7 +13,7 @@ public class KickGoal extends Goal {
 
     @Override
     public boolean canStart() {
-        return guard.getTarget() != null && guard.getTarget().distanceTo(guard) <= 2.5D && guard.getMainHandStack().getItem().isUsedOnRelease(guard.getMainHandStack()) && !guard.isBlocking() && guard.kickCoolDown == 0;
+        return guard.getTarget() != null && guard.getTarget().distanceTo(guard) <= 2.5D && guard.getMainHandStack().getItem().isUsedOnRelease(guard.getMainHandStack()) && !guard.isBlocking() && guard.kickCoolDown == 0 && !guard.isSpellCastBusy();
     }
 
     @Override

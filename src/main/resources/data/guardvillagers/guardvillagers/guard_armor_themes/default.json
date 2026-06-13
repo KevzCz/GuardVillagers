@@ -1,0 +1,148 @@
+{
+  "themes": [
+    {
+      "match_item_tags": ["bards_rpg:lutes", "bards_rpg:lyres", "bards_rpg:harp_crossbows"],
+      "head":  "bards_rpg:bard_armor_head",
+      "chest": "bards_rpg:bard_armor_chest",
+      "legs":  "bards_rpg:bard_armor_legs",
+      "feet":  "bards_rpg:bard_armor_feet"
+    },
+    {
+      "match_namespaces": ["wizards"],
+      "match_path_contains": ["wand_fire"],
+      "head":  "wizards:fire_robe_head",
+      "chest": "wizards:fire_robe_chest",
+      "legs":  "wizards:fire_robe_legs",
+      "feet":  "wizards:fire_robe_feet"
+    },
+    {
+      "match_namespaces": ["wizards"],
+      "match_path_contains": ["wand_frost"],
+      "head":  "wizards:frost_robe_head",
+      "chest": "wizards:frost_robe_chest",
+      "legs":  "wizards:frost_robe_legs",
+      "feet":  "wizards:frost_robe_feet"
+    },
+    {
+      "match_namespaces": ["wizards"],
+      "match_path_contains": ["wand_arcane"],
+      "head":  "wizards:arcane_robe_head",
+      "chest": "wizards:arcane_robe_chest",
+      "legs":  "wizards:arcane_robe_legs",
+      "feet":  "wizards:arcane_robe_feet"
+    },
+    {
+      "match_namespaces": ["elemental_wizards_rpg"],
+      "match_path_contains": ["wand_aqua"],
+      "head":  "elemental_wizards_rpg:kelp_head",
+      "chest": "elemental_wizards_rpg:kelp_chest",
+      "legs":  "elemental_wizards_rpg:kelp_legs",
+      "feet":  "elemental_wizards_rpg:kelp_feet"
+    },
+    {
+      "match_namespaces": ["elemental_wizards_rpg"],
+      "match_path_contains": ["wand_terra"],
+      "head":  "elemental_wizards_rpg:dripstone_head",
+      "chest": "elemental_wizards_rpg:dripstone_chest",
+      "legs":  "elemental_wizards_rpg:dripstone_legs",
+      "feet":  "elemental_wizards_rpg:dripstone_feet"
+    },
+    {
+      "match_namespaces": ["elemental_wizards_rpg"],
+      "match_path_contains": ["wand_wind"],
+      "head":  "elemental_wizards_rpg:wind_head",
+      "chest": "elemental_wizards_rpg:wind_chest",
+      "legs":  "elemental_wizards_rpg:wind_legs",
+      "feet":  "elemental_wizards_rpg:wind_feet"
+    },
+    {
+      "match_items": ["druids:wand_nature"],
+      "head":  "druids:druid_armor_head",
+      "chest": "druids:druid_armor_chest",
+      "legs":  "druids:druid_armor_legs",
+      "feet":  "druids:druid_armor_feet"
+    },
+    {
+      "match_namespaces": ["paladins"],
+      "match_item_tags": ["rpg_series:archetype/healing_weapon"],
+      "head":  "paladins:priest_robe_head",
+      "chest": "paladins:priest_robe_chest",
+      "legs":  "paladins:priest_robe_legs",
+      "feet":  "paladins:priest_robe_feet"
+    },
+    {
+      "match_namespaces": ["paladins"],
+      "match_item_tags": ["rpg_series:archetype/melee_damage_weapon"],
+      "head":  "paladins:paladin_armor_head",
+      "chest": "paladins:paladin_armor_chest",
+      "legs":  "paladins:paladin_armor_legs",
+      "feet":  "paladins:paladin_armor_feet"
+    },
+    {
+      "match_namespaces": ["oathswornpaladins"],
+      "head":  "oathswornpaladins:templar_head",
+      "chest": "oathswornpaladins:templar_chest",
+      "legs":  "oathswornpaladins:templar_legs",
+      "feet":  "oathswornpaladins:templar_feet"
+    },
+    {
+      "match_namespaces": ["forcemaster_rpg"],
+      "head":  "forcemaster_rpg:oriene_head",
+      "chest": "forcemaster_rpg:oriene_chest",
+      "legs":  "forcemaster_rpg:oriene_legs",
+      "feet":  "forcemaster_rpg:oriene_feet"
+    },
+    {
+      "match_namespaces": ["spellbladenext"],
+      "match_path_contains": ["frost"],
+      "head":  "brimstone-battlemages:ashen_battlemage_head",
+      "chest": "brimstone-battlemages:ashen_battlemage_chest",
+      "legs":  "brimstone-battlemages:ashen_battlemage_legs",
+      "feet":  "brimstone-battlemages:ashen_battlemage_feet"
+    },
+    {
+      "match_namespaces": ["spellbladenext"],
+      "match_path_contains": ["fire", "blaze"],
+      "head":  "brimstone-battlemages:ashen_battlemage_head",
+      "chest": "brimstone-battlemages:ashen_battlemage_chest",
+      "legs":  "brimstone-battlemages:ashen_battlemage_legs",
+      "feet":  "brimstone-battlemages:ashen_battlemage_feet"
+    },
+    {
+      "match_namespaces": ["spellbladenext"],
+      "match_path_contains": ["arcane", "gleam"],
+      "head":  "brimstone-battlemages:ashen_battlemage_head",
+      "chest": "brimstone-battlemages:ashen_battlemage_chest",
+      "legs":  "brimstone-battlemages:ashen_battlemage_legs",
+      "feet":  "brimstone-battlemages:ashen_battlemage_feet"
+    },
+    {
+      "match_item_tags": ["rpg_series:archetype/ranged_damage_weapon"],
+      "head":  "archers:ranger_armor_head",
+      "chest": "archers:ranger_armor_chest",
+      "legs":  "archers:ranger_armor_legs",
+      "feet":  "archers:ranger_armor_feet"
+    },
+    {
+      "match_items": ["rogues:iron_dagger", "rogues:iron_sickle"],
+      "head":  "rogues:rogue_armor_head",
+      "chest": "rogues:rogue_armor_chest",
+      "legs":  "rogues:rogue_armor_legs",
+      "feet":  "rogues:rogue_armor_feet"
+    },
+    {
+      "match_items": ["rogues:iron_double_axe", "rogues:iron_glaive", "bards_rpg:iron_rapier"],
+      "head":  "rogues:warrior_armor_head",
+      "chest": "rogues:warrior_armor_chest",
+      "legs":  "rogues:warrior_armor_legs",
+      "feet":  "rogues:warrior_armor_feet"
+    },
+    {
+      "match_namespaces": ["berserker_rpg"],
+      "head":  "berserker_rpg:wilding_head",
+      "chest": "berserker_rpg:wilding_chest",
+      "legs":  "berserker_rpg:wilding_legs",
+      "feet":  "berserker_rpg:wilding_feet"
+    }
+  ]
+}

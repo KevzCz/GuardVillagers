@@ -191,8 +191,9 @@ public class ConditionalSpellGoal {
             return new SpellCondition(guard -> {
                 net.minecraft.util.Identifier id = net.minecraft.util.Identifier.tryParse(effectId);
                 if (id == null) return false;
-                var effect = net.minecraft.registry.Registries.STATUS_EFFECT.get(id);
-                return guard.hasStatusEffect(net.minecraft.registry.Registries.STATUS_EFFECT.getEntry(effect));
+                return net.minecraft.registry.Registries.STATUS_EFFECT.getEntry(id)
+                        .map(guard::hasStatusEffect)
+                        .orElse(false);
             });
         }
 
@@ -200,8 +201,9 @@ public class ConditionalSpellGoal {
             return new SpellCondition(guard -> {
                 net.minecraft.util.Identifier id = net.minecraft.util.Identifier.tryParse(effectId);
                 if (id == null) return true;
-                var effect = net.minecraft.registry.Registries.STATUS_EFFECT.get(id);
-                return !guard.hasStatusEffect(net.minecraft.registry.Registries.STATUS_EFFECT.getEntry(effect));
+                return net.minecraft.registry.Registries.STATUS_EFFECT.getEntry(id)
+                        .map(entry -> !guard.hasStatusEffect(entry))
+                        .orElse(true);
             });
         }
 

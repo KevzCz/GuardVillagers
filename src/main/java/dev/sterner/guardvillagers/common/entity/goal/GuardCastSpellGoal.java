@@ -19,6 +19,10 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
     private final ConditionalSpellGoal conditionalSpells;
 
     private SpellState spellState = SpellState.UNCHARGED;
+    private int castFollowThroughTicks = 0;
+    private int channelHitsDelivered = 0;
+    private int friendlyCheckCooldown = 0;
+    private boolean lastFriendlyInSight = false;
     private double wantedX;
     private double wantedY;
     private double wantedZ;
@@ -43,7 +47,19 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
 
     @Override
     public boolean canStart() {
+        if (guard.isSpellCastBusy()) {
+            return false;
+        }
+        if (guard.spellCastGraceTicks > 0) {
+            return false;
+        }
+        if (GuardItemTags.isSpellbladeWeapon(guard.getMainHandStack())) {
+            return false;
+        }
         if (!guard.getSpellManager().shouldUseProjectileCasting()) {
+            return false;
+        }
+        if (guard.getSpellManager().hasCastablePhysicalMeleeSpell()) {
             return false;
         }
 
@@ -55,13 +71,43 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
             return true;
         }
 
-        return isValidTarget();
+        LivingEntity target = guard.getTarget();
+        return target != null && target.isAlive() && hasCastableSpell(target);
     }
 
     @Override
     public boolean shouldContinue() {
-        return (canStart() || !guard.getNavigation().isIdle() || spellState != SpellState.UNCHARGED)
-                && guard.getSpellManager().shouldUseProjectileCasting();
+        if (GuardItemTags.isSpellbladeWeapon(guard.getMainHandStack())) {
+            return false;
+        }
+        if (!guard.getSpellManager().shouldUseProjectileCasting()) {
+            return false;
+        }
+
+        
+        if (guard.isCastingSpell() && spellState == SpellState.UNCHARGED && currentSpellId == null) {
+            return false;
+        }
+        if (guard.getSpellManager().hasCastablePhysicalMeleeSpell()) {
+            return false;
+        }
+
+        LivingEntity target = guard.getTarget();
+        boolean hasLiveTarget = target != null && target.isAlive();
+
+        if (spellState == SpellState.CHARGING || spellState == SpellState.CHARGED || spellState == SpellState.CASTING) {
+            return true;
+        }
+
+        if (spellState != SpellState.UNCHARGED) {
+            return hasLiveTarget || spellState == SpellState.FIND_NEW_POSITION;
+        }
+
+        if (!hasLiveTarget) {
+            return false;
+        }
+
+        return hasCastableSpell(target) || hasValidConditionalSpell();
     }
 
     @Override
@@ -72,25 +118,86 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
 
     @Override
     public void stop() {
+        if (shouldApplyChannelAbortCooldown()) {
+            applySpellCooldownOnAbort(currentSpellId, cachedSpellEntry.value());
+        }
         super.stop();
         this.spellState = SpellState.UNCHARGED;
         this.cachedSpellEntry = null;
+        this.channelHitsDelivered = 0;
+        this.friendlyCheckCooldown = 0;
+        this.lastFriendlyInSight = false;
+    }
+
+    @Override
+    protected void resetSpellState() {
+        super.resetSpellState();
+        castFollowThroughTicks = 0;
+        channelHitsDelivered = 0;
+    }
+
+    @Override
+    protected boolean shouldInterruptCastOnStop() {
+        if (spellState == SpellState.CASTING && (spellFired || channelHitsDelivered > 0)) {
+            return false;
+        }
+        return super.shouldInterruptCastOnStop();
+    }
+
+    private boolean shouldApplyChannelAbortCooldown() {
+        return isChanneled
+                && channelHitsDelivered > 0
+                && currentSpellId != null
+                && cachedSpellEntry != null
+                && channelTicksLeft > 0;
     }
 
     @Override
     public void tick() {
+        if (checkCastInterrupt(spellState != SpellState.UNCHARGED
+                && spellState != SpellState.FIND_NEW_POSITION)) {
+            spellState = SpellState.UNCHARGED;
+            return;
+        }
+
         tickCooldowns();
 
-        LivingEntity target = guard.getTarget();
+        Spell activeSpell = cachedSpellEntry != null ? cachedSpellEntry.value() : null;
+        float castRange = activeSpell != null
+                ? resolveCastRange(activeSpell, resolveMovementCastRange())
+                : resolveMovementCastRange();
+        LivingEntity target = spellState == SpellState.UNCHARGED || spellState == SpellState.FIND_NEW_POSITION
+                ? guard.getTarget()
+                : SpellCombatTargeting.resolveHostileCastTarget(guard, castRange);
 
-        boolean inAimPhase = spellState == SpellState.CHARGING || spellState == SpellState.CHARGED;
+        if (target == null && shouldAbortCastForMissingTarget()) {
+            abortCastWithProgressCooldown(activeSpell);
+            spellState = SpellState.UNCHARGED;
+            return;
+        }
+
+        if (target == null && spellState == SpellState.CASTING && castFollowThroughTicks > 0) {
+            handleCasting(null);
+            return;
+        }
+
+        boolean inAimPhase = spellState == SpellState.CHARGING
+                || spellState == SpellState.CHARGED
+                || spellState == SpellState.CASTING;
         boolean canRun = spellState == SpellState.UNCHARGED;
 
-        if (target != null && target.isAlive()) {
-            boolean canSee = guard.getVisibilityCache().canSee(target);
-            updateCombatMovement(target, inAimPhase, canRun);
+        if (guard.isCastingMeleeSpell()) {
+            guard.getNavigation().stop();
+            guard.getMoveControl().strafeTo(0.0F, 0.0F);
+        }
 
-            if (friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire) {
+        if (target != null && target.isAlive()
+                && !(guard.isCastingMeleeSpell() || (guard.isCastingSpell() && spellState == SpellState.UNCHARGED))) {
+            boolean canSee = guard.getVisibilityCache().canSee(target);
+            updateCombatMovement(target, inAimPhase, canRun, castRange);
+
+            if (friendlyInLineOfSight() && GuardVillagersConfig.friendlyFire
+                    && spellState != SpellState.CASTING) {
                 this.spellState = SpellState.FIND_NEW_POSITION;
             }
         }
@@ -106,6 +213,7 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
 
     private void handleFindNewPosition() {
         guard.stopUsingItem();
+        guard.setSpellCastProcess(null);
         guard.setCastingSpell(false);
 
         if (findNewPosition()) {
@@ -118,47 +226,58 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
 
     private void handleUncharged(LivingEntity target) {
         Identifier spellId = getNextCastableSpell(target);
-        if (spellId == null) return;
+        if (spellId == null) {
+            guard.setAttacking(false);
+            this.setControls(EnumSet.noneOf(Control.class));
+            return;
+        }
 
         Optional<RegistryEntry.Reference<Spell>> optEntry =
                 SpellRegistry.from(guard.getWorld()).getEntry(spellId);
 
         if (optEntry.isEmpty()) return;
 
-        cachedSpellEntry = optEntry.get();
-        Spell spell = cachedSpellEntry.value();
-        currentSpellId = spellId;
-        windUpTicks = getWindUpTicks(spell);
-
-        guard.setCurrentHand(Hand.MAIN_HAND);
-        guard.setCastingSpell(true);
-
+        beginSpellCast(spellId, optEntry.get(), false);
         this.spellState = SpellState.CHARGING;
     }
 
     private void handleCharging() {
-        if (!guard.isUsingItem()) {
-            guard.setCurrentHand(Hand.MAIN_HAND);
-        }
-
         if (cachedSpellEntry != null && windUpTicks % 2 == 0) {
             spawnCastingParticles(cachedSpellEntry.value());
         }
 
         if (--windUpTicks <= 0) {
-            this.spellState = SpellState.CHARGED;
+            enterCastingState();
+            Spell spell = cachedSpellEntry != null ? cachedSpellEntry.value() : null;
+            float castRange = resolveCastRange(spell, resolveMovementCastRange());
+            LivingEntity fireTarget = SpellCombatTargeting.resolveHostileCastTarget(guard, castRange);
+            handleCasting(fireTarget);
         }
     }
 
     private void handleCharged() {
-        if (currentSpellId == null || isSpellOnCooldown(currentSpellId)) return;
-        if (cachedSpellEntry == null) return;
+        enterCastingState();
+        Spell spell = cachedSpellEntry != null ? cachedSpellEntry.value() : null;
+        float castRange = resolveCastRange(spell, resolveMovementCastRange());
+        LivingEntity fireTarget = SpellCombatTargeting.resolveHostileCastTarget(guard, castRange);
+        handleCasting(fireTarget);
+    }
+
+    private void enterCastingState() {
+        if (currentSpellId == null || cachedSpellEntry == null) {
+            return;
+        }
 
         Spell spell = cachedSpellEntry.value();
         isChanneled = isSpellChanneled(spell);
         channelTicksLeft = getChannelDuration(spell);
         castingDelayTicks = 0;
         spellFired = false;
+
+        if (isChanneled) {
+            configureChannelCastVisuals(spell);
+            guard.setCastingSpell(true);
+        }
 
         spellState = SpellState.CASTING;
     }
@@ -177,13 +296,12 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
 
     private void handleChanneledCast(LivingEntity target, Spell spell) {
         if (channelTicksLeft > 0) {
+            guard.setCastingSpell(true);
+            if (target != null && target.isAlive()) {
+                guard.getLookControl().lookAt(target, 30.0F, 30.0F);
+            }
             if (spell.target != null && spell.target.type == Spell.Target.Type.BEAM) {
                 guard.setActiveBeam(spell.target.beam);
-                guard.setCastingSpell(true);
-
-                if (target != null) {
-                    guard.getLookControl().lookAt(target, 30.0F, 30.0F);
-                }
             }
 
             if (channelTicksLeft % 2 == 0) {
@@ -211,137 +329,159 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
         guard.stopUsingItem();
         guard.setActiveBeam(null);
 
-        int baseCooldown = getCooldownTicks(cachedSpellEntry.value());
-        spellCooldowns.put(currentSpellId, baseCooldown);
+        Identifier spellId = currentSpellId;
+        Spell spell = cachedSpellEntry.value();
+        GuardCastVisuals.completeCastWithRelease(guard, spell);
+        applySpellCooldownOnComplete(spellId, spell);
+        resetAfterCast();
+    }
 
+    private boolean shouldAbortCastForMissingTarget() {
+        if (spellState == SpellState.CHARGING || spellState == SpellState.CHARGED) {
+            return true;
+        }
+        if (spellState == SpellState.CASTING && isChanneled && channelTicksLeft > 0) {
+            return true;
+        }
+        return spellState == SpellState.CASTING && !spellFired;
+    }
+
+    @Override
+    protected void onCastAborted() {
         spellState = SpellState.UNCHARGED;
-        guard.setCastingSpell(false);
+        castFollowThroughTicks = 0;
+        channelHitsDelivered = 0;
+        guard.setChannelTickIndex(0);
+        super.onCastAborted();
+    }
+
+    private void resetAfterCast() {
+        spellState = SpellState.UNCHARGED;
+        currentSpellId = null;
+        cachedSpellEntry = null;
+        spellFired = false;
+        castFollowThroughTicks = 0;
+        channelHitsDelivered = 0;
+        guard.setChannelTickIndex(0);
     }
 
     private void handleSingleCast(LivingEntity target, Spell spell) {
         if (!spellFired) {
             castSpell(target, spell);
             spellFired = true;
-        } else {
+            guard.setSpellCastProcess(null);
+
+            if (GuardCastVisuals.hasReleaseAnimation(spell)) {
+                GuardCastVisuals.beginReleasePhase(guard, spell);
+                int deliverDelay = spell.deliver != null ? Math.max(0, spell.deliver.delay) : 0;
+                castFollowThroughTicks = deliverDelay + GuardCastVisuals.releaseFollowThroughTicks(guard, spell);
+            } else {
+                guard.setCastingSpell(false);
+                if (GuardCastVisuals.shouldClearCastAtSpellFire(spell)) {
+                    GuardCastVisuals.endCastWindUp(guard);
+                }
+                castFollowThroughTicks = computeCastFollowThroughTicks(spell);
+            }
+
+            if (castFollowThroughTicks <= 0) {
+                finishCasting();
+            }
+            return;
+        }
+
+        if (castFollowThroughTicks > 0 && --castFollowThroughTicks <= 0) {
             finishCasting();
         }
     }
 
-
+    private int computeCastFollowThroughTicks(Spell spell) {
+        int deliverDelay = spell.deliver != null ? Math.max(0, spell.deliver.delay) : 0;
+        if (GuardCastVisuals.hasReleaseAnimation(spell)) {
+            return Math.max(GuardSpellTimings.postDeliverWaitTicks(guard, spell), deliverDelay + 2);
+        }
+        return Math.max(GuardSpellTimings.postDeliverWaitTicks(guard, spell), deliverDelay + 2);
+    }
 
     private void castSpell(LivingEntity target, Spell spell) {
+        int channelIndex = isChanneled ? Math.max(0, getChannelDuration(spell) - channelTicksLeft - 1) : 0;
+        guard.setChannelTickIndex(channelIndex);
         SpellContext context = createSpellContext(currentSpellId, cachedSpellEntry, target).build();
-
-        if (spell.deliver == null) {
-            SpellDelivery.castDirect(context);
-            guard.swingHand(Hand.MAIN_HAND, true);
-            return;
+        SpellDelivery.deliverSpell(context, channelIndex);
+        if (isChanneled) {
+            channelHitsDelivered++;
         }
+    }
 
-        switch (spell.deliver.type) {
-            case SHOOT_ARROW, PROJECTILE -> {
-                int channelOffset = isChanneled ? (getChannelDuration(spell) - channelTicksLeft) : 0;
-                SpellDelivery.castProjectile(context, channelOffset);
-            }
-            case METEOR -> SpellDelivery.castMeteor(context);
-            case CLOUD -> SpellDelivery.castCloud(context);
-            case CUSTOM -> SpellDelivery.castCustom(context);
-            case DIRECT -> {
-                if (spell.target != null && spell.target.type == Spell.Target.Type.BEAM) {
-                    SpellDelivery.castBeam(context);
-                } else if (spell.target != null && spell.target.type == Spell.Target.Type.AREA) {
-                    SpellDelivery.castAreaCone(context);
-                } else {
-                    SpellDelivery.castDirect(context);
-                }
-            }
-            case AFFECT_ARROW -> SpellDelivery.castAffectArrow(context);
-            case MELEE -> SpellDelivery.castDirect(context);
-            case STASH_EFFECT -> SpellDelivery.castStashEffect(context);
-        }
-
-        guard.swingHand(Hand.MAIN_HAND, true);
+    private boolean hasCastableSpell(LivingEntity target) {
+        return getNextCastableSpell(target) != null;
     }
 
     private Identifier getNextCastableSpell(LivingEntity target) {
-        var manager = guard.getSpellManager();
-
-        Optional<GuardSpellManager.CategorizedSpell> supportSpell =
-                manager.getBestSpell(GuardSpellManager.SpellCategory.SUPPORT,
-                        s -> conditionalSpells.canCastSpell(s.spellId())
-                                && !isSpellOnCooldown(s.spellId())
-                                && isArchetypeCompatibleWithStaff(s));
-
-        if (supportSpell.isPresent()) {
-            return supportSpell.get().spellId();
-        }
-
         if (target == null || !target.isAlive()) {
             return null;
         }
 
-        boolean canSee = guard.getVisibilityCache().canSee(target);
-        if (!canSee) {
-            return null;
+        GuardSpellManager manager = guard.getSpellManager();
+
+        Optional<GuardSpellManager.CategorizedSpell> offensive = manager.getBestCastableCombatSong(target)
+                .filter(s -> guard.getVisibilityCache().canSee(target)
+                        && conditionalSpells.canCastSpell(s.spellId())
+                        && isArchetypeCompatibleWithMagicWeapon(s));
+
+        if (offensive.isPresent()) {
+            return offensive.get().spellId();
         }
 
-        Optional<GuardSpellManager.CategorizedSpell> areaSpell =
-                manager.getBestSpell(GuardSpellManager.SpellCategory.AREA,
-                        s -> {
-                            boolean isNotAlsoHealing = manager.getSpells(GuardSpellManager.SpellCategory.HEALING)
-                                    .stream()
-                                    .noneMatch(healing -> healing.spellId().equals(s.spellId()));
-
-                            return isNotAlsoHealing
-                                    && conditionalSpells.canCastSpell(s.spellId())
-                                    && !isSpellOnCooldown(s.spellId())
-                                    && isArchetypeCompatibleWithStaff(s);
-                        });
-
-        if (areaSpell.isPresent()) {
-            return areaSpell.get().spellId();
-        }
-
-        Optional<GuardSpellManager.CategorizedSpell> projectileSpell =
-                manager.getBestSpell(GuardSpellManager.SpellCategory.PROJECTILE,
-                        s -> conditionalSpells.canCastSpell(s.spellId())
-                                && !isSpellOnCooldown(s.spellId())
-                                && isArchetypeCompatibleWithStaff(s));
-
-        return projectileSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
+        return manager.getBestCastableSelfSupportSpell()
+                .filter(s -> conditionalSpells.canCastSpell(s.spellId())
+                        && isArchetypeCompatibleWithMagicWeapon(s))
+                .map(GuardSpellManager.CategorizedSpell::spellId)
+                .orElse(null);
     }
 
-    private boolean isArchetypeCompatibleWithStaff(GuardSpellManager.CategorizedSpell spell) {
-        Spell s = spell.entry().value();
-
-        if (s.school == null || s.school.archetype == null) {
-            return true;
+    private float resolveMovementCastRange() {
+        LivingEntity target = guard.getTarget();
+        if (target == null) {
+            return ATTACK_RADIUS;
         }
-        return s.school.archetype == net.spell_power.api.SpellSchool.Archetype.MAGIC;
+        return guard.getSpellManager().getBestCastableCombatSong(target)
+                .map(s -> guard.getSpellManager().effectiveCastRange(s.entry()))
+                .or(() -> guard.getSpellManager().getBestCastableSelfSupportSpell()
+                        .map(s -> guard.getSpellManager().effectiveCastRange(s.entry())))
+                .orElse(ATTACK_RADIUS);
+    }
+
+    private boolean isArchetypeCompatibleWithMagicWeapon(GuardSpellManager.CategorizedSpell spell) {
+        return GuardSpellManager.isMagicCastingSpell(spell.entry().value());
     }
 
     private boolean hasValidConditionalSpell() {
+        LivingEntity target = guard.getTarget();
+        if (target == null || !target.isAlive()) return false;
+
         var manager = guard.getSpellManager();
 
         Optional<GuardSpellManager.CategorizedSpell> supportSpell =
                 manager.getBestSpell(GuardSpellManager.SpellCategory.SUPPORT,
-                        s -> conditionalSpells.canCastSpell(s.spellId()) && !isSpellOnCooldown(s.spellId()));
+                        s -> conditionalSpells.canCastSpell(s.spellId())
+                                && !isSpellOnCooldown(s.spellId())
+                                && GuardSpellManager.isMagicArchetype(s.entry().value()));
 
         return supportSpell.isPresent();
     }
 
     private boolean isInCombat() {
         LivingEntity target = guard.getTarget();
-        if (target != null && target.isAlive()) {
-            return true;
-        }
-
-        return guard.isAttacking();
+        return target != null && target.isAlive();
     }
 
     private boolean friendlyInLineOfSight() {
-        List<Entity> nearby = guard.getWorld().getOtherEntities(guard, guard.getBoundingBox().expand(5.0D));
+        if (--friendlyCheckCooldown > 0) {
+            return lastFriendlyInSight;
+        }
+        friendlyCheckCooldown = 5;
 
+        List<Entity> nearby = guard.getWorld().getOtherEntities(guard, guard.getBoundingBox().expand(5.0D));
         for (Entity entity : nearby) {
             if (entity == guard.getTarget()) continue;
 
@@ -353,10 +493,14 @@ public class GuardCastSpellGoal extends BaseRangedSpellGoal {
             if (isFriendly && guard.canSee(entity) && guard.distanceTo(entity) <= 4.0D) {
                 Vec3d toFriend = entity.getPos().subtract(guard.getPos()).normalize();
                 Vec3d facing = guard.getRotationVector();
-                if (facing.dotProduct(toFriend) > 0.9D) return true;
+                if (facing.dotProduct(toFriend) > 0.9D) {
+                    lastFriendlyInSight = true;
+                    return true;
+                }
             }
         }
 
+        lastFriendlyInSight = false;
         return false;
     }
 

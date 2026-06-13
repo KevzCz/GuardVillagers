@@ -42,6 +42,10 @@ public abstract class BaseRangedSpellGoal extends BaseSpellGoal {
     }
 
     protected void updateCombatMovement(LivingEntity target, boolean inAimPhase, boolean canRun) {
+        updateCombatMovement(target, inAimPhase, canRun, this.attackRadius);
+    }
+
+    protected void updateCombatMovement(LivingEntity target, boolean inAimPhase, boolean canRun, float castRange) {
         boolean canSee = guard.getVisibilityCache().canSee(target);
 
         var mv = CombatMovementHelper.applyRangedCombatMovement(
@@ -54,7 +58,7 @@ public abstract class BaseRangedSpellGoal extends BaseSpellGoal {
                 inAimPhase,
                 canRun,
                 this.speedModifier,
-                this.attackRadius
+                castRange
         );
 
         this.seeTime = mv.seeTime();

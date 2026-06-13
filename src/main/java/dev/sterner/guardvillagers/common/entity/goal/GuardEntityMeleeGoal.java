@@ -1,10 +1,11 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
+import dev.sterner.guardvillagers.common.ai.GuardCombatRole;
 import dev.sterner.guardvillagers.common.ai.HolyZoneHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardItemTags;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.MeleeAttackGoal;
-import net.minecraft.item.CrossbowItem;
 import net.minecraft.util.Hand;
 
 public class GuardEntityMeleeGoal extends MeleeAttackGoal {
@@ -17,12 +18,46 @@ public class GuardEntityMeleeGoal extends MeleeAttackGoal {
 
     @Override
     public boolean canStart() {
-        return !(this.guard.getMainHandStack().getItem() instanceof CrossbowItem) && this.guard.getTarget() != null && !guard.isCastingSpell() && !this.guard.isEating() && super.canStart();
+        return shouldUseMeleeCombat()
+                && !GuardItemTags.isCrossbowLikeWeapon(this.guard.getMainHandStack())
+                && this.guard.getTarget() != null
+                && !guard.isSpellCastBusy()
+                && !this.guard.isEating()
+                && super.canStart();
+    }
+
+    private boolean shouldUseMeleeCombat() {
+        if (GuardItemTags.isSpellbladeWeapon(guard.getMainHandStack())) {
+            return false;
+        }
+        if (GuardCombatRole.isDedicatedSupport(guard)) {
+            return false;
+        }
+        var manager = guard.getSpellManager();
+        if (manager.hasCastablePhysicalMeleeSpell()) {
+            return true;
+        }
+        // Staff/mage archetypes keep distance; StaffCasterDefensiveGoal handles reactive staff bashes.
+        return !manager.shouldUseProjectileCasting();
     }
 
     @Override
     public boolean shouldContinue() {
-        return super.shouldContinue() && !guard.isCastingSpell() && this.guard.getTarget() != null;
+        return super.shouldContinue()
+                && !guard.isSpellCastBusy()
+                && this.guard.getTarget() != null;
+    }
+
+    @Override
+    public void start() {
+        super.start();
+        guard.setAttacking(true);
+    }
+
+    @Override
+    public void stop() {
+        super.stop();
+        guard.setAttacking(false);
     }
 
     @Override
@@ -44,7 +79,6 @@ public class GuardEntityMeleeGoal extends MeleeAttackGoal {
             super.tick();
         }
     }
-
 
     @Override
     protected void attack(LivingEntity target) {

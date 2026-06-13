@@ -3,12 +3,17 @@ package dev.sterner.guardvillagers.common.entity.goal;
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.GuardVillagersConfig;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardItemTags;
 import dev.sterner.guardvillagers.common.entity.GuardSpellManager;
 import dev.sterner.guardvillagers.common.entity.goal.spell.BaseRangedSpellGoal;
 import dev.sterner.guardvillagers.common.entity.goal.spell.ConditionalSpellGoal;
+import dev.sterner.guardvillagers.common.entity.goal.spell.GuardCastVisuals;
+import dev.sterner.guardvillagers.common.entity.goal.spell.GuardSpellTimings;
 import dev.sterner.guardvillagers.common.entity.goal.spell.SpellContext;
 import dev.sterner.guardvillagers.common.entity.goal.spell.SpellDelivery;
 import dev.sterner.guardvillagers.mixin.accessor.CrossbowItemAccessor;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.ChargedProjectilesComponent;
 import net.minecraft.entity.*;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
 import net.minecraft.entity.ai.RangedAttackMob;
@@ -17,7 +22,6 @@ import net.minecraft.entity.mob.PathAwareEntity;
 import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
-import net.minecraft.registry.Registries;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
@@ -41,6 +45,7 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
     private CrossbowState crossbowState = CrossbowState.UNCHARGED;
     private SpellCastState spellCastState = SpellCastState.NONE;
+    private int spellAttackCooldown = 0;
 
     private enum CrossbowState {
         UNCHARGED,
@@ -65,12 +70,26 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
     @Override
     public boolean canStart() {
+        if (mob instanceof GuardEntity guard && guard.isCastingMeleeSpell()) {
+            return false;
+        }
         return isValidTarget() && isHoldingCrossbow();
     }
 
     @Override
     public boolean shouldContinue() {
-        return isValidTarget() && (canStart() || !mob.getNavigation().isIdle()) && isHoldingCrossbow();
+        if (mob instanceof GuardEntity guard && guard.isCastingMeleeSpell()) {
+            return false;
+        }
+        return isValidTarget() && isHoldingCrossbow() && (canStart() || !mob.getNavigation().isIdle());
+    }
+
+    @Override
+    protected boolean shouldInterruptCastOnStop() {
+        if (spellCastState != SpellCastState.NONE || spellAttackCooldown > 0) {
+            return false;
+        }
+        return super.shouldInterruptCastOnStop();
     }
 
     @Override
@@ -93,6 +112,7 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
         resetSpellState();
         crossbowState = CrossbowState.UNCHARGED;
         chargingTime = 0;
+        spellAttackCooldown = 0;
     }
 
     @Override
@@ -107,6 +127,10 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
         tickCooldowns();
 
+        if (spellAttackCooldown > 0) {
+            spellAttackCooldown--;
+        }
+
         boolean canSee = mob.getVisibilityCache().canSee(target);
         boolean inAimPhase = mob.isUsingItem() || spellCastState != SpellCastState.NONE;
         boolean canRun = crossbowState == CrossbowState.UNCHARGED && spellCastState == SpellCastState.NONE;
@@ -114,7 +138,13 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
         updateCombatMovement(target, inAimPhase, canRun);
 
         if (spellCastState != SpellCastState.NONE) {
+            mob.getLookControl().lookAt(target, 30.0F, 30.0F);
+            maintainCrossbowChargeDuringSpell();
             handleSpellCasting(target);
+            return;
+        }
+
+        if (canSee && spellAttackCooldown <= 0 && !guard.isCastingSpell() && tryStartCrossbowSpellCast(target)) {
             return;
         }
 
@@ -176,69 +206,75 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
     private void handleReadyToAttack(LivingEntity target, boolean canSee) {
         if (!canSee) return;
-
-        if (trySpellCast(target)) return;
-
         performCrossbowShot(target);
     }
 
-    private boolean trySpellCast(LivingEntity target) {
+    private boolean tryStartCrossbowSpellCast(LivingEntity target) {
+        Identifier spellId = pickCrossbowSpellId();
+        if (spellId == null) {
+            return false;
+        }
+        return castSpellFromId(spellId, target);
+    }
+
+    private Identifier pickCrossbowSpellId() {
         Identifier stashSpellId = getStashEffectSpellId();
         if (stashSpellId != null && !isSpellOnCooldown(stashSpellId)) {
-            return castSpellFromId(stashSpellId, target);
+            return stashSpellId;
         }
 
         Identifier supportSpellId = getSupportSpellId();
         if (supportSpellId != null && !isSpellOnCooldown(supportSpellId)) {
-            return castSpellFromId(supportSpellId, target);
+            return supportSpellId;
         }
 
-        float spellChance = getScaledSpellChance();
-        if (mob.getRandom().nextFloat() >= spellChance) return false;
-
         Identifier spellId = getCrossbowSpellId();
-        if (spellId == null || isSpellOnCooldown(spellId)) return false;
+        if (spellId == null || isSpellOnCooldown(spellId)) {
+            return null;
+        }
+        return spellId;
+    }
 
-        return castSpellFromId(spellId, target);
+    private void maintainCrossbowChargeDuringSpell() {
+        Hand hand = getCrossbowHand();
+        if (!mob.isUsingItem()) {
+            mob.setCurrentHand(hand);
+            mob.setCharging(true);
+        }
+
+        ItemStack crossbow = mob.getStackInHand(hand);
+        if (mob.getItemUseTime() >= 5 && !CrossbowItem.isCharged(crossbow)) {
+            ItemStack ammo = mob.getProjectileType(crossbow);
+            if (ammo.isEmpty()) {
+                ammo = new ItemStack(Items.ARROW);
+            }
+            crossbow.set(
+                    DataComponentTypes.CHARGED_PROJECTILES,
+                    ChargedProjectilesComponent.of(List.of(ammo.copyWithCount(1)))
+            );
+        }
     }
 
     private Identifier getStashEffectSpellId() {
         if (!(mob instanceof GuardEntity guard)) return null;
 
-        Optional<GuardSpellManager.CategorizedSpell> bestSpell = guard.getSpellManager().getBestSpell(
+        java.util.function.Predicate<GuardSpellManager.CategorizedSpell> isStashArrowSpell = spell -> {
+            Spell s = spell.entry().value();
+            return s.deliver != null
+                    && s.deliver.type == Spell.Delivery.Type.STASH_EFFECT
+                    && !isSpellOnCooldown(spell.spellId());
+        };
+
+        GuardSpellManager manager = guard.getSpellManager();
+        Optional<GuardSpellManager.CategorizedSpell> bestSpell = manager.getBestSpell(
                 GuardSpellManager.SpellCategory.RANGED_BOW,
-                spell -> {
-                    Spell s = spell.entry().value();
-                    return s.deliver != null
-                            && s.deliver.type == Spell.Delivery.Type.STASH_EFFECT
-                            && !isSpellOnCooldown(spell.spellId());
-                }
+                isStashArrowSpell
         );
-
-        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
-    }
-
-    private float getScaledSpellChance() {
-        if (!(mob instanceof GuardEntity guard)) return 0.15f;
-
-        double rangedDamage = 0.0;
-
-        Optional<RegistryEntry.Reference<net.minecraft.entity.attribute.EntityAttribute>> attrOpt =
-                Registries.ATTRIBUTE.getEntry(Identifier.of("ranged_weapon", "damage"));
-
-        if (attrOpt.isPresent()) {
-            RegistryEntry<net.minecraft.entity.attribute.EntityAttribute> attr = attrOpt.get();
-            if (guard.getAttributes().hasAttribute(attr)) {
-                rangedDamage = guard.getAttributeValue(attr);
-            }
+        if (bestSpell.isEmpty()) {
+            bestSpell = manager.getBestSpell(GuardSpellManager.SpellCategory.SUPPORT, isStashArrowSpell);
         }
 
-        double minChance = 0.05;
-        double maxChance = 0.5;
-        double maxDamage = 50.0;
-
-        double chance = minChance + (Math.min(rangedDamage, maxDamage) / maxDamage) * (maxChance - minChance);
-        return (float) chance;
+        return bestSpell.map(GuardSpellManager.CategorizedSpell::spellId).orElse(null);
     }
 
     private boolean castSpellFromId(Identifier spellId, LivingEntity target) {
@@ -252,17 +288,16 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
             channelTicksLeft = getChannelDuration(spell);
             castingDelayTicks = 0;
 
+            mob.setCurrentHand(getCrossbowHand());
             if (windUpTicks > 0) {
                 spellCastState = SpellCastState.WINDING_UP;
-                guard.setCastingSpell(true);
+                GuardCastVisuals.beginCrossbowCast(guard, entry, spell);
             } else if (isChanneled && channelTicksLeft > 0) {
                 spellCastState = SpellCastState.CHANNELING;
-                guard.setCastingSpell(true);
+                GuardCastVisuals.beginCrossbowCast(guard, entry, spell);
+                configureChannelCastVisuals(spell);
             } else {
-                castSpell(target, spell, entry);
-                spellCooldowns.put(spellId, getCooldownTicks(spell));
-                resetSpellState();
-                crossbowState = CrossbowState.UNCHARGED;
+                finishCrossbowSpellCast(target, spell, entry);
             }
             return true;
         }).orElse(false);
@@ -285,11 +320,9 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
                 if (--windUpTicks <= 0) {
                     if (isChanneled && channelTicksLeft > 0) {
                         spellCastState = SpellCastState.CHANNELING;
+                        configureChannelCastVisuals(spell);
                     } else {
-                        castSpell(target, spell, cachedSpellEntry);
-                        spellCooldowns.put(currentSpellId, getCooldownTicks(spell));
-                        resetSpellState();
-                        crossbowState = CrossbowState.UNCHARGED;
+                        finishCrossbowSpellCast(target, spell, cachedSpellEntry);
                     }
                 }
             }
@@ -301,38 +334,41 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
 
                 if (channelTicksLeft > 0) {
                     if (channelTicksLeft == getChannelDuration(spell) || --castingDelayTicks <= 0) {
-                        castSpell(target, spell, cachedSpellEntry);
+                        deliverCrossbowSpell(target, spell, cachedSpellEntry);
                         castingDelayTicks = getChannelFireInterval(spell);
                     }
                     channelTicksLeft--;
                 } else {
-                    spellCooldowns.put(currentSpellId, getCooldownTicks(spell));
-                    resetSpellState();
-                    crossbowState = CrossbowState.UNCHARGED;
+                    completeCrossbowSpellCast(spell);
                 }
             }
         }
     }
 
-    private void castSpell(LivingEntity target, Spell spell, RegistryEntry<Spell> entry) {
+    private void finishCrossbowSpellCast(LivingEntity target, Spell spell, RegistryEntry<Spell> entry) {
+        deliverCrossbowSpell(target, spell, entry);
+        completeCrossbowSpellCast(spell);
+    }
+
+    private void deliverCrossbowSpell(LivingEntity target, Spell spell, RegistryEntry<Spell> entry) {
+        int channelOffset = isChanneled ? Math.max(0, getChannelDuration(spell) - channelTicksLeft - 1) : 0;
+        guard.setChannelTickIndex(channelOffset);
         SpellContext context = createSpellContext(currentSpellId, entry, target).build();
-
-        if (spell.deliver == null) {
-            SpellDelivery.castDirect(context);
-            clearCrossbowCharge();
-            return;
-        }
-
-        switch (spell.deliver.type) {
-            case SHOOT_ARROW, PROJECTILE -> SpellDelivery.castProjectile(context,
-                    isChanneled ? (getChannelDuration(spell) - channelTicksLeft) : 0);
-            case METEOR -> SpellDelivery.castMeteor(context);
-            case CLOUD -> SpellDelivery.castCloud(context);
-            case DIRECT -> SpellDelivery.castDirect(context);
-            case STASH_EFFECT -> SpellDelivery.castStashEffect(context);
-        }
-
+        SpellDelivery.deliverSpell(context, channelOffset);
         clearCrossbowCharge();
+    }
+
+    private void completeCrossbowSpellCast(Spell spell) {
+        mob.stopUsingItem();
+        mob.setCharging(false);
+        if (!GuardCastVisuals.hasReleaseAnimation(spell)) {
+            GuardCastVisuals.completeCastWithRelease(guard, spell);
+        }
+        scheduleSpellCooldownOnComplete(currentSpellId, spell);
+        spellAttackCooldown = Math.max(10, GuardSpellTimings.postDeliverWaitTicks(guard, spell));
+        resetSpellState();
+        crossbowState = CrossbowState.UNCHARGED;
+        attackDelay = 10 + mob.getRandom().nextInt(5);
     }
 
     private void performCrossbowShot(LivingEntity target) {
@@ -398,27 +434,20 @@ public class RangedCrossbowAttackPassiveGoal<T extends PathAwareEntity & RangedA
     }
 
     private boolean isArchetypeCompatibleWithCrossbow(GuardSpellManager.CategorizedSpell spell) {
-        Spell s = spell.entry().value();
-
-        if (s.school == null || s.school.archetype == null) {
-            return true;
-        }
-
-        return s.school.archetype == net.spell_power.api.SpellSchool.Archetype.ARCHERY;
+        return GuardSpellManager.isArcheryArchetype(spell.entry().value());
     }
 
     public void resetSpellState() {
         super.resetSpellState();
         spellCastState = SpellCastState.NONE;
-        guard.setCastingSpell(false);
     }
 
     private boolean isHoldingCrossbow() {
-        return mob.isHolding(is -> is.getItem() instanceof CrossbowItem);
+        return mob.isHolding(GuardItemTags::isCrossbowLikeWeapon);
     }
 
     private Hand getCrossbowHand() {
-        return GuardVillagers.getHandWith(mob, item -> item instanceof CrossbowItem);
+        return GuardVillagers.getHandWith(mob, item -> GuardItemTags.isCrossbowLikeWeapon(new ItemStack(item)));
     }
 
     private boolean friendlyInLineOfSight() {

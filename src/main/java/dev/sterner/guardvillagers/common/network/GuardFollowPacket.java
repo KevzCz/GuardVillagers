@@ -23,6 +23,9 @@ public record GuardFollowPacket(int guardId) implements CustomPayload {
     public void handle(ServerPlayNetworking.Context context) {
         Entity entity = context.player().getWorld().getEntityById(guardId);
         if (entity instanceof GuardEntity guardEntity) {
+            if (!guardEntity.canPlayerUseHeroControls(context.player())) {
+                return;
+            }
             guardEntity.setFollowing(!guardEntity.isFollowing());
             guardEntity.setOwnerId(context.player().getUuid());
             guardEntity.playSound(SoundEvents.ENTITY_VILLAGER_YES, 1, 1);

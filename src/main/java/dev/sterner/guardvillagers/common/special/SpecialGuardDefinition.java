@@ -116,7 +116,7 @@ public final class SpecialGuardDefinition {
         JsonObject behavior = objectOrEmpty(root, "behavior");
         JsonObject loot = objectOrEmpty(root, "loot");
 
-        int weight = spawn.has("weight") ? spawn.get("weight").getAsInt() : 1;
+        int weight = spawn.has("weight") ? spawn.get("weight").getAsInt() : 100;
         Integer maxPerVillage = spawn.has("max_per_village") ? Math.max(0, spawn.get("max_per_village").getAsInt()) : null;
         List<Identifier> biomes = readIdentifierList(spawn.get("biomes"));
         List<Identifier> dimensions = readIdentifierList(spawn.get("dimensions"));

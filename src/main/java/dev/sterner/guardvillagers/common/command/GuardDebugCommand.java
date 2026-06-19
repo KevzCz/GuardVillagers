@@ -7,6 +7,7 @@ import com.mojang.brigadier.context.CommandContext;
 import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
+import dev.sterner.guardvillagers.common.special.GuardEffectiveConfig;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import dev.sterner.guardvillagers.common.special.SpecialGuardDefinition;
 import dev.sterner.guardvillagers.common.special.SpecialGuardRegistry;
@@ -16,6 +17,8 @@ import net.minecraft.command.CommandSource;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.command.argument.IdentifierArgumentType;
 import net.minecraft.entity.SpawnReason;
+import net.minecraft.entity.effect.StatusEffects;
+import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -24,8 +27,10 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -65,6 +70,9 @@ public class GuardDebugCommand {
                                                 )
                                         )
                                 )
+                        )
+                        .then(CommandManager.literal("reputation")
+                                .executes(GuardDebugCommand::showReputation)
                         )
                         .then(CommandManager.literal("special")
                                 .requires(source -> source.hasPermissionLevel(2))
@@ -128,6 +136,37 @@ public class GuardDebugCommand {
             context.getSource().sendError(Text.literal("No guard being watched. Use /guardvillagers watch <guard> first.").formatted(Formatting.RED));
         }
         return guard;
+    }
+
+    private static int showReputation(CommandContext<ServerCommandSource> context) {
+        ServerWorld world = context.getSource().getWorld();
+        Vec3d pos = context.getSource().getPosition();
+        Box box = Box.of(pos, 64, 32, 64);
+
+        List<GuardEntity> guards = world.getEntitiesByClass(GuardEntity.class, box, g -> g.isAlive());
+        List<PlayerEntity> players = world.getEntitiesByClass(PlayerEntity.class, box, p -> !p.isSpectator());
+
+        if (guards.isEmpty()) {
+            context.getSource().sendFeedback(() -> Text.literal("No guards within 32 blocks.").formatted(Formatting.YELLOW), false);
+            return 0;
+        }
+
+        for (GuardEntity guard : guards) {
+            int guardId = guard.getId();
+            context.getSource().sendFeedback(() ->
+                    Text.literal("Guard #" + guardId + ":").formatted(Formatting.AQUA), false);
+            for (PlayerEntity p : players) {
+                int rep = guard.getPlayerEntityReputation(p);
+                boolean hotv = p.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE);
+                boolean canGui = guard.playerHasHeroInteractionAccess(p)
+                        && rep >= GuardEffectiveConfig.reputationRequirement(guard);
+                Formatting color = rep >= 0 ? Formatting.GREEN : Formatting.RED;
+                String flags = (hotv ? " [HOTV]" : "") + (canGui ? " [GUI]" : "");
+                context.getSource().sendFeedback(() ->
+                        Text.literal("  " + p.getName().getString() + ": " + rep + flags).formatted(color), false);
+            }
+        }
+        return 1;
     }
 
     private static int cooldownList(CommandContext<ServerCommandSource> context) {

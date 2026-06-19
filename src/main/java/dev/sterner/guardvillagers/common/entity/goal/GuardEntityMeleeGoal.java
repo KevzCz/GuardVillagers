@@ -69,10 +69,7 @@ public class GuardEntityMeleeGoal extends MeleeAttackGoal {
             guard.lookAtEntity(target, 30.0F, 30.0F);
 
             if (distanceSq < 1.0D) {
-
                 guard.getMoveControl().strafeTo(-0.5F, 0.0F);
-                guard.getNavigation().stop();
-            } else if (this.path != null && distanceSq <= 4.0D) {
                 guard.getNavigation().stop();
             }
 

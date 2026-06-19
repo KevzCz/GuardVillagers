@@ -59,7 +59,7 @@ public final class GuardSpellCooldowns {
             if (!PatternMatching.matches(spell, SpellRegistry.KEY, modifier.id)) {
                 continue;
             }
-            int duration = cooldownManager.getCooldownDuration(spell);
+            int duration = (int)(cooldownManager.getCooldownDuration(spell) * cooldownManager.getCooldownProgress(spell, 1.0f));
             int updatedDuration = (int) ((duration + modifier.duration_add) * modifier.duration_multiplier);
             if (updatedDuration != duration) {
                 cooldownManager.setDurationLeft(spell, updatedDuration);

@@ -7,12 +7,14 @@ import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.EntityPose;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.NoPenaltyTargeting;
+import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 
 public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
@@ -103,9 +105,11 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
 
         double dist2 = guard.getPos().squaredDistanceTo(zoneAnchor);
         if (dist2 > 1.0D) {
+            setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.LOOK));
             moveToPosition(zoneAnchor);
         } else {
             guard.getNavigation().stop();
+            setControls(EnumSet.of(Goal.Control.LOOK));
         }
 
         boolean shouldRaise = determineShieldState();
@@ -115,7 +119,14 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
     }
 
     private void handlePriestRetreat(GuardEntity priest) {
-        moveToPosition(priest.getPos());
+        double dist2 = guard.squaredDistanceTo(priest);
+        if (dist2 > 4.0D) {
+            setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.LOOK));
+            moveToPosition(priest.getPos());
+        } else {
+            guard.getNavigation().stop();
+            setControls(EnumSet.of(Goal.Control.LOOK));
+        }
         guard.lookAtEntity(priest, 30.0F, 30.0F);
 
         boolean shouldRaise = true;
@@ -135,10 +146,12 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
                 : NoPenaltyTargeting.find(guard, 16, 7);
 
         if (pos != null) {
+            setControls(EnumSet.of(Goal.Control.MOVE, Goal.Control.LOOK));
             moveToPosition(pos);
             updateShield(true);
         } else {
             guard.getNavigation().stop();
+            setControls(EnumSet.of(Goal.Control.LOOK));
             updateShield(false);
         }
 
@@ -182,7 +195,11 @@ public class MeleeRetreatForHealingGoal extends BaseZoneGoal {
         if (--poseToggleDelay <= 0) {
             poseToggleDelay = 50 + guard.getRandom().nextInt(20);
             EntityPose current = guard.getPose();
-            guard.setPose(current == EntityPose.STANDING ? EntityPose.CROUCHING : EntityPose.STANDING);
+            if (current == EntityPose.STANDING) {
+                guard.setPose(EntityPose.CROUCHING);
+            } else if (current == EntityPose.CROUCHING) {
+                guard.setPose(EntityPose.STANDING);
+            }
         }
     }
 

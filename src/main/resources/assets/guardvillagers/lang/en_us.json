@@ -30,5 +30,9 @@
   "guardvillagers.hiring.not_enough": "You need %s %s to hire this guard.",
   "guardvillagers.hiring.already_hired": "This guard is already hired by someone else.",
   "guardvillagers.midnightconfig.spellSlotScrollChance": "Spell Slot Scroll Chance",
-  "guardvillagers.midnightconfig.spellSlotScrollMaxTier": "Spell Slot Scroll Max Tier"
+  "guardvillagers.midnightconfig.spellSlotScrollMaxTier": "Spell Slot Scroll Max Tier",
+  "guardvillagers.midnightconfig.supportBuffPriority": "Support Buff Priority",
+  "guardvillagers.midnightconfig.hiredOwnerHealThreshold": "Hired Guard Owner Heal Threshold",
+  "guardvillagers.gui.button.buff_priority": "Buff Priority (cycles: SELF → OWNER → NEAREST_ALLY)",
+  "guardvillagers.gui.button.follow_formation": "Follow Formation (FREE: follow normally, BEHIND: stay behind owner away from target)"
 }

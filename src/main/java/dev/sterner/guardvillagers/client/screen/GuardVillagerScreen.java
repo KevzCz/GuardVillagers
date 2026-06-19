@@ -5,6 +5,7 @@
     import dev.sterner.guardvillagers.common.entity.*;
     import dev.sterner.guardvillagers.common.network.*;
     import dev.sterner.guardvillagers.common.screenhandler.*;
+    import dev.sterner.guardvillagers.common.special.*;
     import net.fabricmc.api.*;
     import net.fabricmc.fabric.api.client.networking.v1.*;
     import net.minecraft.client.gui.*;
@@ -77,6 +78,32 @@
                             buttonPressed = !buttonPressed;
                             ClientPlayNetworking.send(new GuardPatrolPacket(guardEntity.getId(), buttonPressed));
                         })
+                );
+            }
+            if (isHiredOwner) {
+                this.addDrawableChild(ButtonWidget.builder(
+                        Text.literal(priorityLabel(guardEntity.getBuffPriority())),
+                        (button) -> {
+                            ClientPlayNetworking.send(new GuardBuffPriorityPacket(guardEntity.getId()));
+                            GuardVillagersConfig.SupportBuffPriority[] vals = GuardVillagersConfig.SupportBuffPriority.values();
+                            guardEntity.setBuffPriority(vals[(guardEntity.getBuffPriority().ordinal() + 1) % vals.length]);
+                            button.setMessage(Text.literal(priorityLabel(guardEntity.getBuffPriority())));
+                        })
+                        .dimensions(this.x + 140, this.height / 2 - 40, 20, 18)
+                        .tooltip(Tooltip.of(Text.translatable("guardvillagers.gui.button.buff_priority")))
+                        .build()
+                );
+                this.addDrawableChild(ButtonWidget.builder(
+                        Text.literal(formationLabel(guardEntity.getFollowFormation())),
+                        (button) -> {
+                            ClientPlayNetworking.send(new GuardFormationPacket(guardEntity.getId()));
+                            GuardVillagersConfig.FollowFormation[] vals = GuardVillagersConfig.FollowFormation.values();
+                            guardEntity.setFollowFormation(vals[(guardEntity.getFollowFormation().ordinal() + 1) % vals.length]);
+                            button.setMessage(Text.literal(formationLabel(guardEntity.getFollowFormation())));
+                        })
+                        .dimensions(this.x + 120, this.height / 2 - 20, 20, 14)
+                        .tooltip(Tooltip.of(Text.translatable("guardvillagers.gui.button.follow_formation")))
+                        .build()
                 );
             }
         }
@@ -162,6 +189,21 @@
         }
     
     
+        private static String priorityLabel(GuardVillagersConfig.SupportBuffPriority p) {
+            return switch (p) {
+                case SELF -> "S";
+                case OWNER -> "O";
+                case NEAREST_ALLY -> "A";
+            };
+        }
+
+        private static String formationLabel(GuardVillagersConfig.FollowFormation f) {
+            return switch (f) {
+                case FREE -> "FR";
+                case BEHIND -> "BH";
+            };
+        }
+
         class GuardGuiButton extends TexturedButtonWidget {
             private final ButtonTextures texture;
             private final ButtonTextures newTexture;

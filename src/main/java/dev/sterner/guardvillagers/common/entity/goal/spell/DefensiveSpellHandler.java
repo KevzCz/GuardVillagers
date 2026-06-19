@@ -35,6 +35,10 @@ public class DefensiveSpellHandler {
 
         int triggeredCount = 0;
         for (GuardSpellManager.CategorizedSpell passive : passives) {
+            if (guard.isSpellOnCooldown(passive.spellId())) {
+                continue;
+            }
+
             Spell spell = passive.entry().value();
 
             if (spell.passive == null || spell.passive.triggers == null) {
@@ -43,6 +47,10 @@ public class DefensiveSpellHandler {
 
             for (Spell.Trigger trigger : spell.passive.triggers) {
                 if (trigger.type != Spell.Trigger.Type.DAMAGE_TAKEN) {
+                    continue;
+                }
+
+                if (!checkCasterConditions(trigger)) {
                     continue;
                 }
 
@@ -86,6 +94,10 @@ public class DefensiveSpellHandler {
 
         int triggeredCount = 0;
         for (GuardSpellManager.CategorizedSpell passive : passives) {
+            if (guard.isSpellOnCooldown(passive.spellId())) {
+                continue;
+            }
+
             Spell spell = passive.entry().value();
 
             if (spell.passive == null || spell.passive.triggers == null) {
@@ -94,6 +106,10 @@ public class DefensiveSpellHandler {
 
             for (Spell.Trigger trigger : spell.passive.triggers) {
                 if (trigger.type != Spell.Trigger.Type.SHIELD_BLOCK) {
+                    continue;
+                }
+
+                if (!checkCasterConditions(trigger)) {
                     continue;
                 }
 
@@ -123,21 +139,36 @@ public class DefensiveSpellHandler {
         }
     }
 
+    private boolean checkCasterConditions(Spell.Trigger trigger) {
+        if (trigger.caster_conditions == null || trigger.caster_conditions.isEmpty()) {
+            return true;
+        }
+        for (Spell.TargetCondition cond : trigger.caster_conditions) {
+            if (!net.spell_engine.internals.target.SpellTarget.evaluate(guard, guard, cond)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void executeDefensiveSpell(GuardSpellManager.CategorizedSpell passive, Spell spell,
             Spell.Trigger trigger, LivingEntity attacker) {
 
-        LivingEntity effectTarget = guard;
-
+        LivingEntity effectTarget;
         Spell.Trigger.TargetSelector targetOverride = trigger.target_override;
-        if (targetOverride != null && attacker != null) {
-            String overrideName = targetOverride.name();
+        if (targetOverride == Spell.Trigger.TargetSelector.CASTER) {
+            effectTarget = guard;
+        } else if (spell.target != null && spell.target.type == Spell.Target.Type.FROM_TRIGGER
+                && attacker != null) {
+            effectTarget = attacker;
+        } else {
+            effectTarget = guard;
+        }
 
-            if ("ATTACKER".equals(overrideName) || "TARGET".equals(overrideName)) {
-                effectTarget = attacker;
-                GuardDebugManager.broadcast(guard,
-                        "  🎯 Target override: " + overrideName + " -> " + attacker.getName().getString(),
-                        Formatting.YELLOW);
-            }
+        if (!guard.getWorld().isClient()) {
+            GuardDebugManager.broadcast(guard,
+                    "  🎯 Defensive target: " + effectTarget.getName().getString(),
+                    Formatting.YELLOW);
         }
 
         LivingEntity deliveryTarget = SupportSpellCasting.resolveDeliveryTarget(spell, effectTarget);

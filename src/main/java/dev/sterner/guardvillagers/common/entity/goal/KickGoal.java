@@ -6,6 +6,7 @@ import net.minecraft.entity.ai.goal.Goal;
 public class KickGoal extends Goal {
 
     public final GuardEntity guard;
+    private boolean hasKicked = false;
 
     public KickGoal(GuardEntity guard) {
         this.guard = guard;
@@ -17,16 +18,24 @@ public class KickGoal extends Goal {
     }
 
     @Override
+    public boolean shouldContinue() {
+        return !hasKicked;
+    }
+
+    @Override
     public void start() {
+        hasKicked = false;
         guard.setKicking(true);
         if (guard.kickTicks <= 0) {
             guard.kickTicks = 10;
         }
         guard.tryAttack(guard.getTarget());
+        hasKicked = true;
     }
 
     @Override
     public void stop() {
+        hasKicked = false;
         guard.setKicking(false);
         guard.kickCoolDown = 50;
     }

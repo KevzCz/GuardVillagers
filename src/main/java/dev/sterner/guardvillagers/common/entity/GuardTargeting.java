@@ -5,6 +5,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.mob.MobEntity;
 import net.minecraft.entity.mob.Monster;
 import net.minecraft.entity.passive.IronGolemEntity;
+import net.minecraft.entity.passive.TameableEntity;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.player.PlayerEntity;
@@ -20,10 +21,20 @@ public final class GuardTargeting {
         return GuardVillagersConfig.mobBlackList.contains(target.getSavedEntityId());
     }
 
+    public static boolean isOwnerPet(GuardEntity guard, LivingEntity target) {
+        if (!guard.isHired()) return false;
+        java.util.UUID ownerUuid = guard.getOwnerUuid();
+        if (ownerUuid == null) return false;
+        return target instanceof TameableEntity tameable
+                && tameable.isTamed()
+                && ownerUuid.equals(tameable.getOwnerUuid());
+    }
+
     public static boolean isProtectedAlly(GuardEntity guard, LivingEntity target) {
         return target.hasStatusEffect(StatusEffects.HERO_OF_THE_VILLAGE)
                 || guard.isOwner(target)
                 || guard.isSpellSummon(target)
+                || isOwnerPet(guard, target)
                 || target instanceof VillagerEntity
                 || target instanceof IronGolemEntity
                 || target instanceof GuardEntity;
@@ -42,17 +53,31 @@ public final class GuardTargeting {
         return guard.getAttackMobs().contains(entityId);
     }
 
+    public static boolean isRetaliationTarget(GuardEntity guard, LivingEntity target) {
+        return target == guard.getAttacker() || target == guard.getTarget() && guard.getAttacker() != null;
+    }
+
     public static boolean passesGuardFilters(GuardEntity guard, LivingEntity target) {
         if (isBlacklisted(target) || isProtectedAlly(guard, target)) {
             return false;
         }
+        if (isOwnerCombatTarget(guard, target)) {
+            return true;
+        }
         if (target instanceof PlayerEntity) {
-            return guard.shouldAttackPlayers();
+            return guard.shouldAttackPlayers() || isRetaliationTarget(guard, target);
         }
         if (target instanceof MobEntity) {
-            return isHostileMob(target) || isInAttackMobsList(guard, target);
+            return isHostileMob(target) || isInAttackMobsList(guard, target) || isRetaliationTarget(guard, target);
         }
         return true;
+    }
+
+    public static boolean isOwnerCombatTarget(GuardEntity guard, LivingEntity target) {
+        if (!guard.isHired()) return false;
+        LivingEntity owner = guard.getOwner();
+        if (owner == null) return false;
+        return target == owner.getAttacker() || target == owner.getAttacking();
     }
 
     
@@ -70,7 +95,8 @@ public final class GuardTargeting {
         }
         boolean validTarget = isHostileMob(target)
                 || isInAttackMobsList(guard, target)
-                || (target instanceof PlayerEntity && guard.shouldAttackPlayers() && !isProtectedAlly(guard, target));
+                || (target instanceof PlayerEntity && !isProtectedAlly(guard, target)
+                        && (guard.shouldAttackPlayers() || isRetaliationTarget(guard, target)));
         if (!validTarget) {
             return false;
         }

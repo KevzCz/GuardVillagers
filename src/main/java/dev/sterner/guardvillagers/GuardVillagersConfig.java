@@ -84,4 +84,13 @@ public class GuardVillagersConfig extends MidnightConfig {
     public static float spellSlotScrollChance = 0.25f;
     @Entry
     public static int spellSlotScrollMaxTier = 3;
+
+    public enum SupportBuffPriority { SELF, OWNER, NEAREST_ALLY }
+    @Entry
+    public static SupportBuffPriority supportBuffPriority = SupportBuffPriority.OWNER;
+
+    public enum FollowFormation { FREE, BEHIND }
+
+    @Entry
+    public static float hiredOwnerHealThreshold = 0.75f;
 }

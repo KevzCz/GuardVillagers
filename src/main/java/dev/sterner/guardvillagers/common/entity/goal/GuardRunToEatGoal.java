@@ -15,6 +15,7 @@ import java.util.List;
 public class GuardRunToEatGoal extends WanderAroundGoal {
     private final GuardEntity guard;
     private int walkTimer;
+    private LivingEntity savedTarget;
 
     public GuardRunToEatGoal(GuardEntity guard) {
         super(guard, 1.0D);
@@ -30,6 +31,7 @@ public class GuardRunToEatGoal extends WanderAroundGoal {
     @Override
     public void start() {
         super.start();
+        this.savedTarget = this.guard.getTarget();
         this.guard.setTarget(null);
         if (this.walkTimer <= 0) {
             this.walkTimer = 20;
@@ -78,5 +80,9 @@ public class GuardRunToEatGoal extends WanderAroundGoal {
         super.stop();
         this.guard.setCurrentHand(Hand.OFF_HAND);
         this.guard.getNavigation().stop();
+        if (this.savedTarget != null && this.savedTarget.isAlive() && this.guard.getTarget() == null) {
+            this.guard.setTarget(this.savedTarget);
+        }
+        this.savedTarget = null;
     }
 }

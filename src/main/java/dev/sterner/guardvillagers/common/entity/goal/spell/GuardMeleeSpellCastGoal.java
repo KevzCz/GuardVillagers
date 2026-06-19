@@ -10,7 +10,6 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.api.spell.registry.SpellRegistry;
-import net.spell_power.api.SpellSchool;
 
 import java.util.EnumSet;
 import java.util.Optional;
@@ -31,7 +30,6 @@ public class GuardMeleeSpellCastGoal extends BaseSpellGoal {
     private enum SpellState {
         UNCHARGED,
         CHARGING,
-        CHARGED,
         CASTING
     }
 
@@ -79,7 +77,7 @@ public class GuardMeleeSpellCastGoal extends BaseSpellGoal {
         if (spellState == SpellState.CASTING && spellFired && castFollowThroughTicks <= 0) {
             return false;
         }
-        if (spellState == SpellState.CHARGING || spellState == SpellState.CHARGED || spellState == SpellState.CASTING) {
+        if (spellState == SpellState.CHARGING || spellState == SpellState.CASTING) {
             return true;
         }
 
@@ -198,7 +196,6 @@ public class GuardMeleeSpellCastGoal extends BaseSpellGoal {
         switch (this.spellState) {
             case UNCHARGED -> handleUncharged(target);
             case CHARGING -> handleCharging();
-            case CHARGED -> handleCharged();
             case CASTING -> handleCasting(target);
         }
     }
@@ -280,14 +277,6 @@ public class GuardMeleeSpellCastGoal extends BaseSpellGoal {
             LivingEntity fireTarget = SpellCombatTargeting.resolveHostileCastTarget(guard, castRange);
             handleCasting(fireTarget);
         }
-    }
-
-    private void handleCharged() {
-        enterCastingState();
-        Spell spell = cachedSpellEntry != null ? cachedSpellEntry.value() : null;
-        float castRange = resolveCastRange(spell, (float) MELEE_RANGE);
-        LivingEntity fireTarget = SpellCombatTargeting.resolveHostileCastTarget(guard, castRange);
-        handleCasting(fireTarget);
     }
 
     private void enterCastingState() {
@@ -469,7 +458,7 @@ public class GuardMeleeSpellCastGoal extends BaseSpellGoal {
     }
 
     private boolean shouldAbortCastForMissingTarget() {
-        if (spellState == SpellState.CHARGING || spellState == SpellState.CHARGED) {
+        if (spellState == SpellState.CHARGING) {
             return true;
         }
         if (spellState == SpellState.CASTING && isChanneled && channelTicksLeft > 0) {

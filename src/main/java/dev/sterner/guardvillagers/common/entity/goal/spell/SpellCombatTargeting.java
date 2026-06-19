@@ -3,6 +3,7 @@ package dev.sterner.guardvillagers.common.entity.goal.spell;
 import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import dev.sterner.guardvillagers.common.entity.GuardTargeting;
+import dev.sterner.guardvillagers.common.entity.goal.spell.SpellDelivery;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.registry.entry.RegistryEntry;
@@ -50,9 +51,6 @@ public final class SpellCombatTargeting {
             }
         }
 
-        if (nearest != null && nearest != current) {
-            guard.setTarget(nearest);
-        }
         return nearest;
     }
 
@@ -125,6 +123,14 @@ public final class SpellCombatTargeting {
 
         return switch (spell.target.type) {
             case AIM -> {
+                if (caster instanceof GuardEntity guard) {
+                    LivingEntity combatTarget = guard.getTarget();
+                    if (combatTarget != null && combatTarget.isAlive()
+                            && selectionPredicate.test(combatTarget)
+                            && guard.squaredDistanceTo(combatTarget) <= (double) range * range) {
+                        yield List.of(combatTarget);
+                    }
+                }
                 Entity hit = TargetHelper.targetFromRaycast(caster, range, selectionPredicate);
                 yield hit != null ? List.of(hit) : List.of();
             }
@@ -164,7 +170,7 @@ public final class SpellCombatTargeting {
                     .position(impactPosition(target, center))
                     .distance(distanceMult);
 
-            if (SpellHelper.performImpacts(
+            if (SpellDelivery.performImpacts(
                     world,
                     caster,
                     target,

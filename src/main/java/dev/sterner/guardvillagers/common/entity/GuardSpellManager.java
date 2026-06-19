@@ -919,24 +919,20 @@ public class GuardSpellManager {
 
     
     public static boolean isMagicCastingSpell(Spell spell) {
-        if (spell.secondary_archetype != null) {
-            switch (spell.secondary_archetype) {
-                case ANY -> {
-                    return true;
-                }
-                default -> {}
-            }
-        }
         if (isMeleeArchetype(spell)) {
             return false;
         }
         if (isArcheryArchetype(spell)) {
             return false;
         }
+        if (spell.secondary_archetype != null && spell.secondary_archetype == net.spell_engine.api.spell.Spell.ExtendedArchetype.ANY) {
+            return true;
+        }
         if (spell.school != null && spell.school.id != null) {
             String path = spell.school.id.getPath();
             if (path.contains("arcane") || path.contains("healing") || path.contains("soul")
-                    || path.contains("fire") || path.contains("frost") || path.contains("arcane")) {
+                    || path.contains("fire") || path.contains("frost") || path.contains("lightning")
+                    || path.contains("holy") || path.contains("nature") || path.contains("shadow")) {
                 return true;
             }
         }
@@ -1009,6 +1005,9 @@ public class GuardSpellManager {
             if (hitbox > 0) {
                 return hitbox;
             }
+        }
+        if (spell.target != null && spell.target.type == Spell.Target.Type.CASTER) {
+            return 0.0F;
         }
         return 16.0F;
     }

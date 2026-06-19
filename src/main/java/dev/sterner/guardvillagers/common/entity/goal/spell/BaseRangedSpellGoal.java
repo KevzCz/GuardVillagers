@@ -26,7 +26,6 @@ public abstract class BaseRangedSpellGoal extends BaseSpellGoal {
 
     @Override
     public void start() {
-        super.stop();
         guard.setAttacking(true);
         seeTime = 0;
         updatePathDelay = 0;

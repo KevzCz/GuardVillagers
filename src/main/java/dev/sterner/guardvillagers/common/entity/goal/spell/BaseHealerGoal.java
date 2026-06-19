@@ -3,6 +3,7 @@ package dev.sterner.guardvillagers.common.entity.goal.spell;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.passive.IronGolemEntity;
+import net.minecraft.entity.passive.TameableEntity;
 import net.minecraft.entity.passive.VillagerEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.math.Box;
@@ -126,10 +127,19 @@ public abstract class BaseHealerGoal extends BaseSpellGoal {
         ).isEmpty();
     }
 
+    protected static boolean isOwnerPet(GuardEntity self, LivingEntity e) {
+        if (!self.isHired()) return false;
+        java.util.UUID ownerUuid = self.getOwnerUuid();
+        if (ownerUuid == null) return false;
+        return e instanceof TameableEntity tameable
+                && tameable.isTamed()
+                && ownerUuid.equals(tameable.getOwnerUuid());
+    }
+
     protected static boolean isAlly(GuardEntity self, LivingEntity e) {
         if (e == null || !e.isAlive() || e == self) return false;
 
-        if (self.isHired() && self.isOwner(e)) {
+        if (self.isHired() && (self.isOwner(e) || isOwnerPet(self, e))) {
             return true;
         }
         return (e instanceof VillagerEntity)

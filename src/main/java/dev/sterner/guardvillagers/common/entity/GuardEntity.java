@@ -139,6 +139,8 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     private final Set<UUID> spellSummons = new HashSet<>();
     @Nullable private Identifier specialGuardType;
     private Map<String, JsonElement> configOverrides = Map.of();
+    private GuardVillagersConfig.SupportBuffPriority buffPriority = GuardVillagersConfig.SupportBuffPriority.OWNER;
+    private GuardVillagersConfig.FollowFormation followFormation = GuardVillagersConfig.FollowFormation.FREE;
     private NbtCompound specialEntityData = new NbtCompound();
     private boolean treatAsHeroOfTheVillage;
     @Nullable private Boolean hireableOverride;
@@ -549,9 +551,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     }
 
     public boolean hasSpellSources() {
-        GuardSpellManager manager = new GuardSpellManager(this);
-        manager.refresh();
-        return !manager.getAllActiveSpells().isEmpty() || !manager.getAllPassiveSpells().isEmpty();
+        return !spellManager.getAllActiveSpells().isEmpty() || !spellManager.getAllPassiveSpells().isEmpty();
     }
 
     public static int slotToInventoryIndex(EquipmentSlot slot) {
@@ -719,8 +719,8 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         this.setFollowing(nbt.getBoolean("Following"));
         this.interacting = nbt.getBoolean("Interacting");
         this.setPatrolling(nbt.getBoolean("Patrolling"));
-        this.shieldCoolDown = nbt.getInt("KickCooldown");
-        this.kickCoolDown = nbt.getInt("ShieldCooldown");
+        this.shieldCoolDown = nbt.getInt("ShieldCooldown");
+        this.kickCoolDown = nbt.getInt("KickCooldown");
         this.lastGossipDecayTime = nbt.getLong("LastGossipDecay");
         this.lastGossipTime = nbt.getLong("LastGossipTime");
         this.spawnWithArmor = nbt.getBoolean("SpawnWithArmor");
@@ -765,6 +765,14 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         }
         this.specialEntityData = nbt.contains("SpecialEntityData") ? nbt.getCompound("SpecialEntityData") : new NbtCompound();
         this.configOverrides = readConfigOverridesFromNbt(nbt);
+        if (nbt.contains("BuffPriority")) {
+            try { this.buffPriority = GuardVillagersConfig.SupportBuffPriority.valueOf(nbt.getString("BuffPriority")); }
+            catch (IllegalArgumentException ignored) { this.buffPriority = GuardVillagersConfig.SupportBuffPriority.OWNER; }
+        }
+        if (nbt.contains("FollowFormation")) {
+            try { this.followFormation = GuardVillagersConfig.FollowFormation.valueOf(nbt.getString("FollowFormation")); }
+            catch (IllegalArgumentException ignored) { this.followFormation = GuardVillagersConfig.FollowFormation.FREE; }
+        }
 
         if (nbt.contains("PatrolPosX")) {
             int x = nbt.getInt("PatrolPosX");
@@ -871,6 +879,8 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         if (!this.configOverrides.isEmpty()) {
             nbt.putString("ConfigOverrides", writeConfigOverridesJson(this.configOverrides));
         }
+        nbt.putString("BuffPriority", this.buffPriority.name());
+        nbt.putString("FollowFormation", this.followFormation.name());
         nbt.putLong("LastGossipTime", this.lastGossipTime);
         nbt.putLong("LastGossipDecay", this.lastGossipDecayTime);
 
@@ -1307,7 +1317,9 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
 
         if (!this.getWorld().isClient) {
             LivingEntity target = this.getTarget();
-            if (target != null && (!target.isAlive() || !this.canTarget(target))) {
+            if (target != null && !target.isAlive()) {
+                this.setTarget(null);
+            } else if (target != null && !this.isCastingSpell() && !this.isCastingMeleeSpell() && !this.canTarget(target)) {
                 this.setTarget(null);
             }
             if (this.spellCastGraceTicks > 0) {
@@ -1494,7 +1506,8 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
             if (amount >= 3.0F) {
                 int i = 1 + MathHelper.floor(amount);
                 Hand hand = this.getActiveHand();
-                this.activeItemStack.damage(i, this, EquipmentSlot.OFFHAND);
+                EquipmentSlot slot = hand == Hand.MAIN_HAND ? EquipmentSlot.MAINHAND : EquipmentSlot.OFFHAND;
+                this.activeItemStack.damage(i, this, slot);
                 if (this.activeItemStack.isEmpty()) {
                     if (hand == Hand.MAIN_HAND) {
                         this.equipStack(EquipmentSlot.MAINHAND, ItemStack.EMPTY);
@@ -1692,6 +1705,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         });
         this.goalSelector.add(3, new GuardEntityMeleeGoal(this, 0.8D, true));
         this.goalSelector.add(3, new GuardEntity.FollowHeroGoal(this));
+        this.goalSelector.add(3, new BehindOwnerFormationGoal(this));
         this.goalSelector.add(3, new HolyAreaAnchorGoal(this, 1.1D, HolyAreaAnchorGoal.rangedOrCaster()));
 
         if (GuardVillagersConfig.guardEntitysRunFromPolarBears)
@@ -1787,6 +1801,9 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         List<RegistryEntry<Spell>> arrowSpells = new ArrayList<>();
         List<Pair<RegistryEntry<net.minecraft.entity.effect.StatusEffect>, Integer>> effectsToModify = new ArrayList<>();
 
+        List<RegistryEntry<Spell>> allSpells = net.spell_engine.api.spell.registry.SpellRegistry.stream(this.getWorld())
+                .<RegistryEntry<Spell>>map(e -> e).toList();
+
         int effectCount = 0;
         for (var effectInstance : this.getStatusEffects()) {
             var effectEntry = effectInstance.getEffectType();
@@ -1797,10 +1814,9 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
                     "  📋 Checking effect #" + effectCount + ": " + effectId + " (amp: " + effectInstance.getAmplifier() + ", duration: " + effectInstance.getDuration() + ")",
                     Formatting.GRAY);
 
-            var spellRegistry = net.spell_engine.api.spell.registry.SpellRegistry.from(this.getWorld());
             boolean foundMatchingSpell = false;
 
-            for (var spellEntry : spellRegistry.streamEntries().toList()) {
+            for (var spellEntry : allSpells) {
                 Spell spell = spellEntry.value();
                 if (spell.deliver != null &&
                         spell.deliver.type == Spell.Delivery.Type.STASH_EFFECT &&
@@ -2230,7 +2246,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         if (this.isKicking()) {
             this.setKicking(false);
         }
-        super.knockback(this);
+        super.knockback(entityIn);
     }
 
     @Override
@@ -2254,6 +2270,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
                         this.setOwnerUuid(player.getUuid());
                         this.setTamed(true, false);
                         this.hotvFollowerId = null;
+                        this.setFollowing(true);
                         this.protectHiredEquipment();
                         player.sendMessage(Text.translatable("guardvillagers.hiring.hired"), true);
                     } else {
@@ -2275,11 +2292,12 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
             }
         }
 
-        boolean configValues = playerHasHeroInteractionAccess(player) && GuardEffectiveConfig.giveGuardStuffHotv(this)
-                || playerHasHeroInteractionAccess(player) && GuardEffectiveConfig.setGuardPatrolHotv(this)
-                || playerHasHeroInteractionAccess(player) && GuardEffectiveConfig.giveGuardStuffHotv(this) && GuardEffectiveConfig.setGuardPatrolHotv(this)
-                || this.getPlayerEntityReputation(player) >= GuardEffectiveConfig.reputationRequirement(this)
-                || playerHasHeroInteractionAccess(player) && !GuardEffectiveConfig.giveGuardStuffHotv(this) && !GuardEffectiveConfig.setGuardPatrolHotv(this)
+        boolean hasHeroAccess = playerHasHeroInteractionAccess(player);
+        boolean configValues = hasHeroAccess && GuardEffectiveConfig.giveGuardStuffHotv(this)
+                || hasHeroAccess && GuardEffectiveConfig.setGuardPatrolHotv(this)
+                || hasHeroAccess && GuardEffectiveConfig.giveGuardStuffHotv(this) && GuardEffectiveConfig.setGuardPatrolHotv(this)
+                || hasHeroAccess && this.getPlayerEntityReputation(player) >= GuardEffectiveConfig.reputationRequirement(this)
+                || hasHeroAccess && !GuardEffectiveConfig.giveGuardStuffHotv(this) && !GuardEffectiveConfig.setGuardPatrolHotv(this)
                 || this.getOwnerId() != null && this.getOwnerId().equals(player.getUuid());
         boolean inventoryRequirements = !player.shouldCancelInteraction();
         if (inventoryRequirements) {
@@ -2376,9 +2394,6 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     }
 
     public void openGui(ServerPlayerEntity player) {
-        if (!this.isHired()) {
-            this.setOwnerId(player.getUuid());
-        }
         if (player.currentScreenHandler != player.playerScreenHandler) {
             player.closeHandledScreen();
         }
@@ -2423,6 +2438,32 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
 
     public void setPatrolling(boolean patrolling) {
         this.dataTracker.set(PATROLLING, patrolling);
+    }
+
+    public GuardVillagersConfig.SupportBuffPriority getBuffPriority() {
+        return buffPriority;
+    }
+
+    public void setBuffPriority(GuardVillagersConfig.SupportBuffPriority priority) {
+        this.buffPriority = priority;
+    }
+
+    public void cycleBuffPriority() {
+        GuardVillagersConfig.SupportBuffPriority[] values = GuardVillagersConfig.SupportBuffPriority.values();
+        this.buffPriority = values[(this.buffPriority.ordinal() + 1) % values.length];
+    }
+
+    public GuardVillagersConfig.FollowFormation getFollowFormation() {
+        return followFormation;
+    }
+
+    public void setFollowFormation(GuardVillagersConfig.FollowFormation formation) {
+        this.followFormation = formation;
+    }
+
+    public void cycleFollowFormation() {
+        GuardVillagersConfig.FollowFormation[] values = GuardVillagersConfig.FollowFormation.values();
+        this.followFormation = values[(this.followFormation.ordinal() + 1) % values.length];
     }
 
     @Override
@@ -2496,7 +2537,9 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
             double distance = guard.distanceTo(owner);
             if (guard.isHired() && distance > HIRED_TELEPORT_RANGE) {
                 guard.getNavigation().stop();
-                guard.refreshPositionAndAngles(owner.getX(), owner.getY(), owner.getZ(), owner.getYaw(), owner.getPitch());
+                Vec3d safeTeleportPos = findSafeTeleportNear(guard, owner);
+                if (safeTeleportPos == null) return;
+                guard.refreshPositionAndAngles(safeTeleportPos.x, safeTeleportPos.y, safeTeleportPos.z, owner.getYaw(), owner.getPitch());
                 guard.setVelocity(Vec3d.ZERO);
                 guard.getLookControl().lookAt(owner, 30.0F, 30.0F);
                 return;
@@ -2517,13 +2560,37 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
 
         @Override
         public boolean canStart() {
-            return guard.isFollowing() && guard.getOwner() != null;
+            if (!guard.isFollowing() || guard.getOwner() == null) return false;
+            LivingEntity target = guard.getTarget();
+            return target == null || !target.isAlive();
         }
 
         @Override
         public void stop() {
             this.guard.getNavigation().stop();
         }
+    }
+
+    private static Vec3d findSafeTeleportNear(GuardEntity guard, LivingEntity owner) {
+        World world = guard.getWorld();
+        if (!(world instanceof net.minecraft.server.world.ServerWorld serverWorld)) return null;
+
+        Random rng = guard.getRandom();
+        BlockPos ownerPos = owner.getBlockPos();
+
+        for (int attempt = 0; attempt < 10; attempt++) {
+            int dx = rng.nextBetween(-3, 3);
+            int dz = rng.nextBetween(-3, 3);
+            int x = ownerPos.getX() + dx;
+            int z = ownerPos.getZ() + dz;
+            int surfaceY = serverWorld.getTopY(net.minecraft.world.Heightmap.Type.MOTION_BLOCKING_NO_LEAVES, x, z);
+            BlockPos teleportPos = new BlockPos(x, surfaceY, z);
+            if (world.getBlockState(teleportPos).isAir()
+                    && world.getBlockState(teleportPos.up()).isAir()) {
+                return Vec3d.ofBottomCenter(teleportPos);
+            }
+        }
+        return null;
     }
 
     public boolean isHoldingHolyFocus() {

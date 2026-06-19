@@ -11,6 +11,7 @@ import java.util.List;
 
 public class FollowShieldGuards extends Goal {
     private static final TargetPredicate NEARBY_GUARDS = TargetPredicate.createNonAttackable().setBaseMaxDistance(8.0D).ignoreVisibility();
+    private static final TargetPredicate NEARBY_GUARDS_CLOSE = TargetPredicate.createNonAttackable().setBaseMaxDistance(3.0D).ignoreVisibility();
     private final GuardEntity taskOwner;
     private GuardEntity guardtofollow;
     private double x;
@@ -27,7 +28,7 @@ public class FollowShieldGuards extends Goal {
         if (!list.isEmpty()) {
             for (GuardEntity guard : list) {
                 if (!guard.isInvisible() && guard.hasShield() && guard.isBlocking() // Might create compatibility problems
-                        && this.taskOwner.getWorld().getTargets(GuardEntity.class, NEARBY_GUARDS.setBaseMaxDistance(3.0D), guard,
+                        && this.taskOwner.getWorld().getTargets(GuardEntity.class, NEARBY_GUARDS_CLOSE, guard,
                                 this.taskOwner.getBoundingBox().expand(5.0D))
                         .size() < 5) {
                     this.guardtofollow = guard;

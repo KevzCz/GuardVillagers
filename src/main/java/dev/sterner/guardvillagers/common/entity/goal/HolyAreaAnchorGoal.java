@@ -14,6 +14,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
     private boolean anchoredForThisZone;
     private boolean computedAnchor;
     private Vec3d anchorPos;
+    private java.util.UUID lastAnchoredZoneId;
 
     public HolyAreaAnchorGoal(GuardEntity guard, double speed, double searchRange, Predicate<GuardEntity> shouldRun) {
         super(guard, speed, searchRange);
@@ -32,7 +33,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
 
         if (!findAndCacheZone()) return false;
 
-        return zoneId == null || !Objects.equals(zoneId, zoneRef.getUuid()) || !anchoredForThisZone;
+        return !Objects.equals(lastAnchoredZoneId, zoneRef.getUuid()) || !anchoredForThisZone;
     }
 
     @Override
@@ -49,6 +50,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
         computedAnchor = false;
         anchorPos = null;
         anchoredForThisZone = false;
+        lastAnchoredZoneId = null;
     }
 
     @Override
@@ -78,6 +80,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
 
             if (anchorPos == null) {
                 anchoredForThisZone = true;
+                lastAnchoredZoneId = zoneRef.getUuid();
                 guard.getNavigation().stop();
                 return;
             }
@@ -90,6 +93,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
 
             if (dist2 <= 1.0D) {
                 anchoredForThisZone = true;
+                lastAnchoredZoneId = zoneRef.getUuid();
                 guard.getNavigation().stop();
                 return;
             }
@@ -102,6 +106,7 @@ public class HolyAreaAnchorGoal extends BaseZoneGoal {
     @Override
     protected void onProgressWatchdogTimeout() {
         anchoredForThisZone = true;
+        if (zoneRef != null) lastAnchoredZoneId = zoneRef.getUuid();
         super.onProgressWatchdogTimeout();
     }
 

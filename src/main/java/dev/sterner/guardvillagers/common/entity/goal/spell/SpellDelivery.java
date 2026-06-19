@@ -29,7 +29,7 @@ import java.util.*;
 
 public class SpellDelivery {
 
-    private static boolean performImpacts(
+    static boolean performImpacts(
             World world,
             LivingEntity caster,
             Entity target,
@@ -38,6 +38,29 @@ public class SpellDelivery {
             List<Spell.Impact> impacts,
             SpellHelper.ImpactContext ctx
     ) {
+        if (caster instanceof GuardEntity guard
+                && target instanceof LivingEntity livingTarget
+                && !GuardTargeting.isProtectedAlly(guard, livingTarget)
+                && impacts != null) {
+            impacts = impacts.stream()
+                    .filter(i -> {
+                        if (i.action == null) return true;
+                        if (i.action.type == Spell.Impact.Action.Type.HEAL) return false;
+                        if (i.action.type == Spell.Impact.Action.Type.STATUS_EFFECT
+                                && i.action.status_effect != null
+                                && i.action.status_effect.effect_id != null) {
+                            Identifier effectId = Identifier.tryParse(i.action.status_effect.effect_id);
+                            if (effectId != null) {
+                                return Registries.STATUS_EFFECT.getEntry(effectId)
+                                        .map(e -> !e.value().isBeneficial())
+                                        .orElse(true);
+                            }
+                        }
+                        return true;
+                    })
+                    .toList();
+            if (impacts.isEmpty()) return false;
+        }
         boolean success = SpellHelper.performImpacts(world, caster, target, source, entry, impacts, ctx);
         if (target instanceof GuardEntity guard) {
             GuardSpellCooldowns.applyCooldownImpacts(guard, impacts);
@@ -319,44 +342,46 @@ public class SpellDelivery {
         LivingEntity caster = context.caster();
         World world = caster.getWorld();
         Vec3d impactPos = resolveImpactPosition(context);
-
         Entity exclude = context.target();
-
         SpellHelper.ImpactContext areaContext = context.impactContext().position(impactPos);
 
-        boolean success = SpellHelper.lookupAndPerformAreaImpact(
-                spell.area_impact,
-                context.entry(),
-                caster,
-                exclude,
-                caster,
-                context.getImpacts(),
-                areaContext,
-                false
-        );
+        if (!(caster instanceof GuardEntity guard)) {
+            boolean success = SpellHelper.lookupAndPerformAreaImpact(
+                    spell.area_impact, context.entry(), caster, exclude, caster,
+                    context.getImpacts(), areaContext, false);
+            if (success && exclude instanceof LivingEntity livingTarget) {
+                triggerPassiveSpells(caster, livingTarget, context.entry(), false);
+                triggerStashedEffects(caster, livingTarget, context.entry());
+            }
+            return;
+        }
 
-        if (success && exclude instanceof LivingEntity livingTarget) {
+        float radius = spell.area_impact.combinedRadius(context.impactContext().power().baseValue());
+        List<Entity> areaTargets = TargetHelper.targetsFromArea(
+                world, caster, impactPos, caster.getRotationVector(),
+                radius, spell.area_impact.area, SpellCombatTargeting.combatFilter(caster));
+        if (exclude != null) areaTargets.remove(exclude);
+
+        int hits = 0;
+        for (Entity entity : areaTargets) {
+            if (!(entity instanceof LivingEntity target)) continue;
+            Vec3d pos = SpellCombatTargeting.impactPosition(target, SpellCombatTargeting.casterCenter(caster));
+            SpellHelper.ImpactContext targetCtx = areaContext.position(pos);
+            if (performImpacts(world, caster, target, target, context.entry(), context.getImpacts(), targetCtx)) {
+                hits++;
+                triggerImpactFollowUps(caster, target, context);
+            }
+        }
+
+        if (exclude instanceof LivingEntity livingTarget && hits > 0) {
             triggerPassiveSpells(caster, livingTarget, context.entry(), false);
             triggerStashedEffects(caster, livingTarget, context.entry());
         }
 
-        if (caster instanceof GuardEntity guard && !world.isClient() && success) {
-            float radius = spell.area_impact.combinedRadius(context.impactContext().power().baseValue());
-            List<Entity> areaTargets = TargetHelper.targetsFromArea(
-                    world,
-                    caster,
-                    impactPos,
-                    caster.getRotationVector(),
-                    radius,
-                    spell.area_impact.area,
-                    SpellCombatTargeting.combatFilter(caster)
-            );
-            if (exclude != null) {
-                areaTargets.remove(exclude);
-            }
+        if (!world.isClient()) {
             GuardDebugManager.broadcast(guard,
                     "💥 Area impact: " + context.spellId().getPath()
-                            + " → " + areaTargets.size() + " target(s), r=" + String.format("%.1f", radius),
+                            + " → " + hits + "/" + areaTargets.size() + " target(s), r=" + String.format("%.1f", radius),
                     Formatting.GREEN);
         }
     }
@@ -702,9 +727,7 @@ public class SpellDelivery {
         LivingEntity caster = context.caster();
         World world = caster.getWorld();
 
-        // For melee-mechanic spells on guards, spell.range is the effect AoE angle radius, not a search distance.
-        // Use meleeAttackRange (≥3.0) so the area search actually finds nearby enemies.
-        float range = (caster instanceof GuardEntity && spell.range_mechanic == Spell.RangeMechanic.MELEE)
+        float range =(caster instanceof GuardEntity && spell.range_mechanic == Spell.RangeMechanic.MELEE)
                 ? meleeAttackRange(caster, context.entry()) * caster.getScale()
                 : SpellCombatTargeting.scaledRange(caster, context.entry(), meleeAttackRange(caster, context.entry()));
         Spell.Target.Area area = SpellCombatTargeting.targetArea(spell);
@@ -1216,13 +1239,14 @@ public class SpellDelivery {
         }
 
         List<StatusEffectInstance> effectsCopy = new ArrayList<>(caster.getStatusEffects());
+        List<net.minecraft.registry.entry.RegistryEntry<Spell>> allStashSpells = net.spell_engine.api.spell.registry.SpellRegistry.stream(caster.getWorld())
+                .<net.minecraft.registry.entry.RegistryEntry<Spell>>map(e -> e).toList();
 
         for (var effectInstance : effectsCopy) {
             var effectEntry = effectInstance.getEffectType();
             String effectId = Registries.STATUS_EFFECT.getId(effectEntry.value()).toString();
 
-            var spellRegistry = net.spell_engine.api.spell.registry.SpellRegistry.from(caster.getWorld());
-            for (var stashSpellEntry : spellRegistry.streamEntries().toList()) {
+            for (var stashSpellEntry : allStashSpells) {
                 Identifier stashSpellId = stashSpellEntry.getKey()
                         .map(key -> key.getValue())
                         .orElse(null);
@@ -1338,6 +1362,10 @@ public class SpellDelivery {
                     }
                 }
 
+                if (guard.isSpellOnCooldown(passive.spellId())) {
+                    continue;
+                }
+
                 if (!guard.getWorld().isClient()) {
                     GuardDebugManager.broadcast(guard,
                             "⚡ Triggering passive: " + passive.spellId().getPath() + " from " + triggeredSpellId.getPath(),
@@ -1345,6 +1373,8 @@ public class SpellDelivery {
                 }
 
                 executePassiveSpell(guard, target, passive, passiveSpell);
+                guard.setSpellCooldown(passive.spellId(),
+                        BaseSpellGoal.resolveCooldownTicks(guard, passive.entry()));
             }
         }
     }

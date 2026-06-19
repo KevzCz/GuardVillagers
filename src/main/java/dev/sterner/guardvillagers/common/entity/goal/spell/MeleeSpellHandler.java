@@ -82,9 +82,41 @@ public class MeleeSpellHandler {
         boolean hasMeleeImpactTrigger = false;
         for (Spell.Trigger trigger : spell.passive.triggers) {
             if (trigger.type == Spell.Trigger.Type.MELEE_IMPACT) {
+                if (trigger.equipment_condition != null
+                        && trigger.equipment_condition == net.minecraft.entity.EquipmentSlot.MAINHAND
+                        && guard.getMainHandStack().isEmpty()) {
+                    if (!guard.getWorld().isClient()) {
+                        GuardDebugManager.broadcast(guard,
+                                "  ⚠️ " + categorizedSpell.spellId().getPath() + " equipment_condition MAINHAND not met",
+                                Formatting.GRAY);
+                    }
+                    return false;
+                }
+
                 hasMeleeImpactTrigger = true;
-                
-                
+
+                if (trigger.caster_conditions != null) {
+                    boolean condsMet = true;
+                    for (net.spell_engine.api.spell.Spell.TargetCondition cond : trigger.caster_conditions) {
+                        if (!net.spell_engine.internals.target.SpellTarget.evaluate(guard, primaryTarget, cond)) {
+                            condsMet = false;
+                            break;
+                        }
+                    }
+                    if (!condsMet) return false;
+                }
+
+                if (trigger.target_conditions != null) {
+                    boolean condsMet = true;
+                    for (net.spell_engine.api.spell.Spell.TargetCondition cond : trigger.target_conditions) {
+                        if (!net.spell_engine.internals.target.SpellTarget.evaluate(primaryTarget, guard, cond)) {
+                            condsMet = false;
+                            break;
+                        }
+                    }
+                    if (!condsMet) return false;
+                }
+
                 if (trigger.chance > 0 && trigger.chance < 1.0f) {
                     if (guard.getRandom().nextFloat() > trigger.chance) {
                         if (!guard.getWorld().isClient()) {
@@ -100,8 +132,6 @@ public class MeleeSpellHandler {
         }
 
         if (!hasMeleeImpactTrigger) {
-            
-            
             return false;
         }
 
@@ -171,6 +201,14 @@ public class MeleeSpellHandler {
                                 Formatting.LIGHT_PURPLE);
                     }
                     yield castMeleeProjectiles(spell, categorizedSpell.entry(), context, primaryTarget);
+                }
+                case METEOR -> {
+                    if (!guard.getWorld().isClient()) {
+                        GuardDebugManager.broadcast(guard,
+                                "  🔧 Executing METEOR delivery",
+                                Formatting.LIGHT_PURPLE);
+                    }
+                    yield castMeleeMeteor(spell, categorizedSpell.entry(), context, primaryTarget);
                 }
                 case CLOUD -> {
                     if (!guard.getWorld().isClient()) {
@@ -271,6 +309,34 @@ public class MeleeSpellHandler {
     
     
 
+    private boolean castMeleeMeteor(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+        int count = 1;
+        if (spell.deliver != null && spell.deliver.meteor != null
+                && spell.deliver.meteor.launch_properties != null) {
+            count = 1 + spell.deliver.meteor.launch_properties.extra_launch_count;
+        }
+
+        Vec3d targetPos = primaryTarget.getPos();
+        boolean success = SpellHelper.fallProjectile(
+                guard.getWorld(),
+                guard,
+                primaryTarget,
+                targetPos,
+                spellEntry,
+                context.position(targetPos),
+                count
+        );
+
+        if (!guard.getWorld().isClient()) {
+            GuardDebugManager.broadcast(guard,
+                    success ? "    ✅ Meteor launched (" + count + ")" : "    ❌ Meteor failed",
+                    success ? Formatting.GREEN : Formatting.RED);
+        }
+
+        playReleaseSound(spell);
+        return success;
+    }
+
     private boolean castMeleeCloud(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
         Vec3d targetPos = primaryTarget.getPos();
         
@@ -360,7 +426,7 @@ public class MeleeSpellHandler {
             boolean success = SpellHelper.performImpacts(
                     guard.getWorld(),
                     guard,
-                    guard,
+                    target,
                     target,
                     spellEntry,
                     spell.impacts,

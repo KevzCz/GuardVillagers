@@ -84,12 +84,16 @@ public class GuardVillagers implements ModInitializer {
 
         PayloadTypeRegistry.playC2S().register(GuardFollowPacket.ID, GuardFollowPacket.PACKET_CODEC);
         PayloadTypeRegistry.playC2S().register(GuardPatrolPacket.ID, GuardPatrolPacket.PACKET_CODEC);
+        PayloadTypeRegistry.playC2S().register(GuardBuffPriorityPacket.ID, GuardBuffPriorityPacket.PACKET_CODEC);
+        PayloadTypeRegistry.playC2S().register(GuardFormationPacket.ID, GuardFormationPacket.PACKET_CODEC);
 
         PayloadTypeRegistry.playS2C().register(GuardFollowPacket.ID, GuardFollowPacket.PACKET_CODEC);
         PayloadTypeRegistry.playS2C().register(GuardPatrolPacket.ID, GuardPatrolPacket.PACKET_CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(GuardFollowPacket.ID, GuardFollowPacket::handle);
         ServerPlayNetworking.registerGlobalReceiver(GuardPatrolPacket.ID, GuardPatrolPacket::handle);
+        ServerPlayNetworking.registerGlobalReceiver(GuardBuffPriorityPacket.ID, GuardBuffPriorityPacket::handle);
+        ServerPlayNetworking.registerGlobalReceiver(GuardFormationPacket.ID, GuardFormationPacket::handle);
 
         ServerLifecycleEvents.SERVER_STARTING.register(server ->
                 GuardAnimationDurations.INSTANCE.reload(server.getResourceManager()));

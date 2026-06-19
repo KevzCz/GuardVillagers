@@ -77,6 +77,15 @@ public final class GuardEffectiveConfig {
         return readBoolean(guard, "setGuardPatrolHotv", GuardVillagersConfig.setGuardPatrolHotv);
     }
 
+    public static GuardVillagersConfig.SupportBuffPriority supportBuffPriority(@Nullable GuardEntity guard) {
+        if (guard != null) return guard.getBuffPriority();
+        return GuardVillagersConfig.supportBuffPriority;
+    }
+
+    public static float hiredOwnerHealThreshold(@Nullable GuardEntity guard) {
+        return readFloat(guard, "hiredOwnerHealThreshold", GuardVillagersConfig.hiredOwnerHealThreshold);
+    }
+
     private static Map<String, JsonElement> overrides(@Nullable GuardEntity guard) {
         return guard != null ? guard.getConfigOverrides() : Map.of();
     }

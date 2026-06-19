@@ -1,5 +1,6 @@
 package dev.sterner.guardvillagers.common.entity.goal;
 
+import dev.sterner.guardvillagers.GuardVillagersConfig;
 import dev.sterner.guardvillagers.common.ai.GuardCombatRole;
 import dev.sterner.guardvillagers.common.ai.GuardWeaponArchetype;
 import dev.sterner.guardvillagers.common.ai.HolyZoneHelper;
@@ -13,6 +14,7 @@ import dev.sterner.guardvillagers.common.entity.goal.spell.BaseHealerGoal;
 import dev.sterner.guardvillagers.common.entity.goal.spell.GuardCastVisuals;
 import dev.sterner.guardvillagers.common.entity.goal.spell.GuardSpellEffectHelper;
 import dev.sterner.guardvillagers.common.entity.goal.spell.SupportSpellCasting;
+import dev.sterner.guardvillagers.common.special.GuardEffectiveConfig;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.MarkerEntity;
 import net.minecraft.entity.player.PlayerEntity;
@@ -206,7 +208,7 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
     }
 
     private void updateControls(boolean activeSupport) {
-        if (inCombat() || activeSupport || pendingCast != null || positioningTicks > 0) {
+        if (activeSupport || pendingCast != null || positioningTicks > 0) {
             this.setControls(EnumSet.of(Control.MOVE, Control.LOOK));
         } else {
             this.setControls(EnumSet.noneOf(Control.class));
@@ -240,6 +242,9 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         if (canHeal && guard.getHealth() < guard.getMaxHealth()) {
             return true;
         }
+        if (canHeal && isOwnerHurtEnoughToHeal()) {
+            return true;
+        }
         if (canHeal && hasHurtAllyNearby(ALLY_SCAN)) {
             return true;
         }
@@ -254,6 +259,14 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         }
         return !findNearbyAllyList(ALLY_SCAN).isEmpty()
                 || guard.getHealth() / guard.getMaxHealth() < 0.98F;
+    }
+
+    private boolean isOwnerHurtEnoughToHeal() {
+        if (!guard.isHired()) return false;
+        LivingEntity owner = guard.getOwner();
+        if (owner == null || !owner.isAlive()) return false;
+        float threshold = GuardEffectiveConfig.hiredOwnerHealThreshold(guard);
+        return owner.getHealth() / owner.getMaxHealth() < threshold;
     }
 
     private boolean tryCombatSupport(LivingEntity enemy, boolean anchor) {
@@ -391,9 +404,14 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         }).orElse(false);
     }
 
+    private boolean hasHealingSpell() {
+        return findHealSpell().isPresent();
+    }
+
     private boolean tryHolyShock(LivingEntity enemy, boolean anchor) {
         if (pendingCast != null || anchor || enemy instanceof PlayerEntity) return false;
         if (guard.distanceTo(enemy) > HSHOCK_RANGE) return false;
+        if (hasHealingSpell() && !findNearbyAllyList(ALLY_SCAN).isEmpty()) return false;
         return findOwned(ID_HSHOCK).or(() -> findOwnedByPath("holy_shock")).map(spell -> {
             if (isSpellOnCooldown(spell.spellId())) return false;
             beginCast(spell.spellId(), spell.entry(), CastIntent.HOLY_SHOCK, false, enemy, () ->
@@ -404,6 +422,7 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
 
     private boolean tryHybridSong(LivingEntity enemy, boolean anchor) {
         if (pendingCast != null || anchor || hasHurtAllyNearby(ALLY_SCAN)) return false;
+        if (hasHealingSpell() && !findNearbyAllyList(ALLY_SCAN).isEmpty()) return false;
         if (guard.getSpellManager().getBestCastableCombatSong(enemy).isPresent()) {
             return false;
         }
@@ -622,8 +641,26 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         return switch (spell.target.type) {
             case CASTER -> guard;
             case AREA -> null;
-            default -> {
-                LivingEntity ally = findNearbyAllyList(ALLY_SCAN).stream().findFirst().orElse(null);
+            default -> resolveDirectedBuffTarget();
+        };
+    }
+
+    @Nullable
+    private LivingEntity resolveDirectedBuffTarget() {
+        GuardVillagersConfig.SupportBuffPriority priority = GuardEffectiveConfig.supportBuffPriority(guard);
+        return switch (priority) {
+            case SELF -> guard;
+            case OWNER -> {
+                if (guard.isHired()) {
+                    LivingEntity owner = guard.getOwner();
+                    if (owner != null && owner.isAlive()) yield owner;
+                }
+                yield guard;
+            }
+            case NEAREST_ALLY -> {
+                LivingEntity ally = findNearbyAllyList(ALLY_SCAN).stream()
+                        .min(java.util.Comparator.comparingDouble(guard::squaredDistanceTo))
+                        .orElse(null);
                 yield ally != null ? ally : guard;
             }
         };

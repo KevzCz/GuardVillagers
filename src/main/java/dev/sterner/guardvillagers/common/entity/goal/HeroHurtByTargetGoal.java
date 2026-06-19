@@ -6,6 +6,8 @@ import net.minecraft.entity.ai.TargetPredicate;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.entity.ai.goal.TrackTargetGoal;
 import net.minecraft.entity.passive.IronGolemEntity;
+import net.minecraft.entity.passive.MerchantEntity;
+import net.minecraft.entity.passive.VillagerEntity;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.EnumSet;
@@ -35,7 +37,7 @@ public class HeroHurtByTargetGoal extends TrackTargetGoal {
 
     @Override
     protected boolean canTrack(@Nullable LivingEntity target, TargetPredicate targetPredicate) {
-        return super.canTrack(target, targetPredicate) && !(target instanceof IronGolemEntity) && !(target instanceof GuardEntity);
+        return super.canTrack(target, targetPredicate) && !(target instanceof IronGolemEntity) && !(target instanceof GuardEntity) && !(target instanceof VillagerEntity) && !(target instanceof MerchantEntity);
     }
 
     @Override

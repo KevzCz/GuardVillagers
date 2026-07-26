@@ -406,7 +406,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         super(type, world);
         this.guardInventory.addListener(this);
         this.setPersistent();
-        this.cooldownManager = new SpellCooldownManager(null);
+        this.cooldownManager = new SpellCooldownManager(this);
         if (GuardVillagersConfig.guardEntitysOpenDoors)
             ((MobNavigation) this.getNavigation()).setCanPathThroughDoors(true);
     }
@@ -415,7 +415,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     @Override
     public SpellCooldownManager getCooldownManager() {
         if (this.cooldownManager == null) {
-            this.cooldownManager = new SpellCooldownManager(null);
+            this.cooldownManager = new SpellCooldownManager(this);
         }
         return this.cooldownManager;
     }
@@ -2037,7 +2037,8 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
                             "  🔧 Adding spell to arrow: " + spellEntry.getKey().get().getValue(),
                             Formatting.GOLD);
 
-                    arrowExt.applyArrowPerks(spellEntry);
+                    arrowExt.applyArrowPerks(spellEntry,
+                            net.spell_engine.internals.arrow.ArrowHelper.effectiveArrowPerks(this, spellEntry));
 
                     GuardDebugManager.broadcast(this,
                             "    ✅ Spell added to arrow carried list",
@@ -2187,6 +2188,11 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     public boolean isSpellSummon(LivingEntity entity) {
         if (entity == null) {
             return false;
+        }
+        if (entity instanceof net.spell_engine.api.spell.summon.SpellSummoned
+                && entity instanceof net.minecraft.entity.Tameable tameable
+                && getUuid().equals(tameable.getOwnerUuid())) {
+            return true;
         }
         pruneSpellSummons();
         return spellSummons.contains(entity.getUuid())

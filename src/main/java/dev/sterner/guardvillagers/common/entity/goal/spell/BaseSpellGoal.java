@@ -263,7 +263,7 @@ public abstract class BaseSpellGoal extends Goal {
     }
 
     protected boolean isSpellChanneled(Spell spell) {
-        return spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0;
+        return spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0;
     }
 
     protected void configureChannelCastVisuals(Spell spell) {

@@ -581,11 +581,11 @@ public class SpellDelivery {
         if (!SpellHelper.isChanneled(spell)
                 || spell.active == null
                 || spell.active.cast == null
-                || spell.active.cast.channel_ticks <= 0) {
+                || spell.active.cast.channelTicks() <= 0) {
             return true;
         }
         int channelIndex = context.impactContext().channelTickIndex();
-        return channelIndex >= spell.active.cast.channel_ticks - 1;
+        return channelIndex >= spell.active.cast.channelTicks() - 1;
     }
 
     private static boolean hasAssignedSupportTarget(Spell spell, SpellContext context) {
@@ -631,7 +631,7 @@ public class SpellDelivery {
                 hasSelfTargetImpact = true;
             }
 
-            if (impact.action.type == Spell.Impact.Action.Type.SPAWN) {
+            if (isSummoningAction(impact.action.type)) {
                 hasSelfTargetImpact = true;
             }
 
@@ -669,10 +669,6 @@ public class SpellDelivery {
         if (!(context.caster() instanceof GuardEntity guard) || guard.getWorld().isClient()) {
             return;
         }
-        if (!hasSpawnImpacts(context.spell())) {
-            return;
-        }
-
         java.util.Set<Identifier> spawnTypes = collectSpawnEntityTypes(context.spell());
         if (spawnTypes.isEmpty()) {
             return;
@@ -693,11 +689,15 @@ public class SpellDelivery {
             return false;
         }
         for (Spell.Impact impact : spell.impacts) {
-            if (impact.action != null && impact.action.type == Spell.Impact.Action.Type.SPAWN) {
+            if (impact.action != null && isSummoningAction(impact.action.type)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isSummoningAction(Spell.Impact.Action.Type type) {
+        return type == Spell.Impact.Action.Type.SPAWN || type == Spell.Impact.Action.Type.SUMMON;
     }
 
     private static java.util.Set<Identifier> collectSpawnEntityTypes(Spell spell) {
@@ -706,20 +706,26 @@ public class SpellDelivery {
             return types;
         }
         for (Spell.Impact impact : spell.impacts) {
-            if (impact.action == null || impact.action.type != Spell.Impact.Action.Type.SPAWN
+            if (impact.action == null
+                    || impact.action.type != Spell.Impact.Action.Type.SPAWN
                     || impact.action.spawns == null) {
                 continue;
             }
             for (Spell.Impact.Action.Spawn spawn : impact.action.spawns) {
-                if (spawn.entity_type_id != null) {
-                    Identifier id = Identifier.tryParse(spawn.entity_type_id);
-                    if (id != null) {
-                        types.add(id);
-                    }
-                }
+                addEntityType(types, spawn.entity_type_id);
             }
         }
         return types;
+    }
+
+    private static void addEntityType(java.util.Set<Identifier> types, @Nullable String entityTypeId) {
+        if (entityTypeId == null) {
+            return;
+        }
+        Identifier id = Identifier.tryParse(entityTypeId);
+        if (id != null) {
+            types.add(id);
+        }
     }
 
     private static void castAreaDirect(SpellContext context) {

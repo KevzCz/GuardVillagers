@@ -216,7 +216,7 @@ public final class GuardCastVisuals {
                 cast.animation_spin,
                 guard.getWorld().getTime(),
                 details.length(),
-                cast.channel_ticks,
+                cast.channelTicks(),
                 processSpeed * animSpeed,
                 cast.animation_pitch
         );
@@ -498,16 +498,16 @@ public final class GuardCastVisuals {
     }
 
     public static int channelDurationTicks(GuardEntity guard, Spell spell) {
-        if (spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0) {
+        if (spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0) {
             return Math.max(1, SpellHelper.getCastTimeDetails(guard, spell).length());
         }
         return 0;
     }
 
     public static int channelFireIntervalTicks(GuardEntity guard, Spell spell) {
-        if (spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0) {
+        if (spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0) {
             int totalTicks = Math.max(1, SpellHelper.getCastTimeDetails(guard, spell).length());
-            int channelTicks = spell.active.cast.channel_ticks;
+            int channelTicks = spell.active.cast.channelTicks();
             return Math.max(1, totalTicks / channelTicks);
         }
         return DEFAULT_RELEASE_TICKS;

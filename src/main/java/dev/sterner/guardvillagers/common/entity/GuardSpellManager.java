@@ -720,6 +720,13 @@ public class GuardSpellManager {
                     }
                 }
             }
+
+            if (impact.action.type == Spell.Impact.Action.Type.SUMMON) {
+                if (impact.action.summon != null && impact.action.summon.entity_type_id != null
+                        && impact.action.summon.entity_type_id.contains("barrier")) {
+                    return true;
+                }
+            }
         }
         return false;
     }
@@ -729,7 +736,9 @@ public class GuardSpellManager {
             return false;
         }
         for (Spell.Impact impact : spell.impacts) {
-            if (impact.action != null && impact.action.type == Spell.Impact.Action.Type.SPAWN) {
+            if (impact.action != null
+                    && (impact.action.type == Spell.Impact.Action.Type.SPAWN
+                    || impact.action.type == Spell.Impact.Action.Type.SUMMON)) {
                 return true;
             }
         }
@@ -1142,7 +1151,7 @@ public class GuardSpellManager {
     }
 
     private static boolean isChanneledSpell(Spell spell) {
-        return spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0;
+        return spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0;
     }
 
     private static boolean isPureDamageSpell(Spell spell) {
@@ -1202,7 +1211,7 @@ public class GuardSpellManager {
             return false;
         }
         
-        if (spell.active != null && spell.active.cast != null && spell.active.cast.channel_ticks > 0) {
+        if (spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0) {
             return false;
         }
         

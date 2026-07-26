@@ -144,12 +144,14 @@ public class GuardVillagers implements ModInitializer {
         });
 
         ServerTickEvents.END_WORLD_TICK.register(world -> {
+            List<Runnable> toRun;
             synchronized (PENDING_GUARD_SPAWNS) {
-                if (!PENDING_GUARD_SPAWNS.isEmpty()) {
-                    PENDING_GUARD_SPAWNS.forEach(Runnable::run);
-                    PENDING_GUARD_SPAWNS.clear();
-                }
+                if (PENDING_GUARD_SPAWNS.isEmpty())
+                    return;
+                toRun = new ArrayList<>(PENDING_GUARD_SPAWNS);
+                PENDING_GUARD_SPAWNS.clear();
             }
+            toRun.forEach(Runnable::run);
         });
     }
 

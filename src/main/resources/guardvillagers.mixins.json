@@ -19,6 +19,7 @@
     "EntityRelationsMixin",
     "SpellHelperGuardMixin",
     "SpellProjectileMixin",
+    "SummonedEntityOwnerMixin",
     "PersistentProjectileEntityMixin"
   ],
   "injectors": {

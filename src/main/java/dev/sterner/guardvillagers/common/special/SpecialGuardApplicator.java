@@ -4,6 +4,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.mojang.serialization.JsonOps;
 import dev.sterner.guardvillagers.GuardVillagers;
+import dev.sterner.guardvillagers.common.entity.GrantedSpell;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.attribute.EntityAttribute;
@@ -90,6 +91,8 @@ public final class SpecialGuardApplicator {
             guard.spellCastGraceTicks = 40;
         }
 
+        applyGrantedSpells(guard, definition, world);
+
         guard.getSpellManager().refresh();
     }
 
@@ -134,6 +137,22 @@ public final class SpecialGuardApplicator {
             } else if (slot.slot() == 4) {
                 guard.equipStack(EquipmentSlot.OFFHAND, stack);
             }
+        }
+    }
+
+    private static void applyGrantedSpells(GuardEntity guard, SpecialGuardDefinition definition, ServerWorld world) {
+        if (definition.spells().isEmpty()) {
+            return;
+        }
+        List<GrantedSpell> resolved = new ArrayList<>();
+        for (SpecialGuardDefinition.GrantedSpellEntry entry : definition.spells()) {
+            if (entry.chance() < 1.0f && world.getRandom().nextFloat() >= entry.chance()) {
+                continue;
+            }
+            resolved.add(new GrantedSpell(entry.spellId(), entry.passiveOnly()));
+        }
+        if (!resolved.isEmpty()) {
+            guard.setGrantedSpells(resolved);
         }
     }
 

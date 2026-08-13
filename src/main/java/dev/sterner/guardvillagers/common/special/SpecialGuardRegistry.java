@@ -14,8 +14,11 @@ import net.minecraft.resource.ResourceManager;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.structure.StructureStart;
 import net.minecraft.util.math.random.Random;
 import net.minecraft.world.biome.Biome;
+import net.minecraft.world.gen.StructureAccessor;
+import net.minecraft.world.gen.structure.Structure;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.InputStreamReader;
@@ -26,12 +29,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 
 public final class SpecialGuardRegistry implements SimpleSynchronousResourceReloadListener {
 
     public static final SpecialGuardRegistry INSTANCE = new SpecialGuardRegistry();
     private static final String FOLDER = "guardvillagers/special_guards";
     private static final int DEFAULT_SPAWN_WEIGHT = 100;
+    private static final int STRUCTURE_PROBE_STEP = 16;
 
     private final Map<Identifier, SpecialGuardDefinition> definitions = new LinkedHashMap<>();
 
@@ -170,7 +175,59 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
             }
         }
 
+        if (!definition.structureFilters().isEmpty()) {
+            boolean matched = false;
+            for (Identifier filter : definition.structureFilters()) {
+                if (matchesStructureFilter(world, pos, filter, definition.structureSearchRadius())) {
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                return false;
+            }
+        }
+
         return true;
+    }
+
+    private static boolean matchesStructureFilter(ServerWorld world, BlockPos pos, Identifier filter, int searchRadius) {
+        StructureAccessor accessor = world.getStructureAccessor();
+        if (filter.getPath().startsWith("#")) {
+            Identifier tagId = Identifier.of(filter.getNamespace(), filter.getPath().substring(1));
+            TagKey<Structure> tag = TagKey.of(RegistryKeys.STRUCTURE, tagId);
+            return anyPositionMatches(pos, searchRadius, probe ->
+                    accessor.getStructureContaining(probe, tag) != StructureStart.DEFAULT);
+        }
+
+        Structure structure = world.getRegistryManager()
+                .get(RegistryKeys.STRUCTURE)
+                .get(filter);
+        if (structure == null) {
+            return false;
+        }
+        return anyPositionMatches(pos, searchRadius, probe ->
+                accessor.getStructureAt(probe, structure) != StructureStart.DEFAULT);
+    }
+
+    private static boolean anyPositionMatches(BlockPos pos, int searchRadius, Predicate<BlockPos> test) {
+        if (test.test(pos)) {
+            return true;
+        }
+        if (searchRadius <= 0) {
+            return false;
+        }
+        for (int offsetX = -searchRadius; offsetX <= searchRadius; offsetX += STRUCTURE_PROBE_STEP) {
+            for (int offsetZ = -searchRadius; offsetZ <= searchRadius; offsetZ += STRUCTURE_PROBE_STEP) {
+                if (offsetX == 0 && offsetZ == 0) {
+                    continue;
+                }
+                if (test.test(pos.add(offsetX, 0, offsetZ))) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean matchesBiomeFilter(RegistryEntry<Biome> biome, Identifier filter) {

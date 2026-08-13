@@ -65,7 +65,8 @@ public class GuardSpellManager {
         OFFHAND,
         SPELL_SLOT,
         ARMOR,
-        EQUIPMENT_SET
+        EQUIPMENT_SET,
+        GRANTED
     }
 
     public GuardSpellManager(GuardEntity guard) {
@@ -85,7 +86,8 @@ public class GuardSpellManager {
         ItemStack legs = guard.getEquippedStack(EquipmentSlot.LEGS);
         ItemStack feet = guard.getEquippedStack(EquipmentSlot.FEET);
 
-        String loadoutHash = computeLoadoutHash(mainhand, offhand, spellSlot, head, chest, legs, feet);
+        String loadoutHash = computeLoadoutHash(mainhand, offhand, spellSlot, head, chest, legs, feet)
+                + computeGrantedHash();
         boolean loadoutChanged = !loadoutHash.equals(lastLoadoutHash);
 
         if (!loadoutChanged) {
@@ -129,6 +131,7 @@ public class GuardSpellManager {
         }
 
         collectEquipmentSetSpells(mainhand, offhand, spellSlot, head, chest, legs, feet);
+        categorizeGrantedSpells();
         applySetAttributeModifiers();
 
         lastMainhand = mainhand.copy();
@@ -219,6 +222,39 @@ public class GuardSpellManager {
         appendStackLoadout(sb, "legs", legs);
         appendStackLoadout(sb, "feet", feet);
         return sb.toString();
+    }
+
+    private String computeGrantedHash() {
+        List<GrantedSpell> granted = guard.getGrantedSpells();
+        if (granted.isEmpty()) {
+            return "granted=none;";
+        }
+        StringBuilder sb = new StringBuilder(32).append("granted=");
+        for (GrantedSpell entry : granted) {
+            sb.append(entry.spellId());
+            if (entry.passiveOnly()) {
+                sb.append("!p");
+            }
+            sb.append(',');
+        }
+        return sb.append(';').toString();
+    }
+
+    private void categorizeGrantedSpells() {
+        for (GrantedSpell granted : guard.getGrantedSpells()) {
+            Optional<RegistryEntry.Reference<Spell>> optEntry =
+                    SpellRegistry.from(guard.getWorld()).getEntry(granted.spellId());
+            if (optEntry.isEmpty()) {
+                if (!guard.getWorld().isClient()) {
+                    GuardDebugManager.broadcast(guard,
+                            "❌ Granted spell not found in registry: " + granted.spellId(),
+                            Formatting.RED);
+                }
+                continue;
+            }
+            RegistryEntry<Spell> entry = optEntry.get();
+            categorizeSpell(granted.spellId(), entry, entry.value(), ItemSource.GRANTED, granted.passiveOnly());
+        }
     }
 
     private static void appendStackLoadout(StringBuilder sb, String label, ItemStack stack) {
@@ -383,6 +419,11 @@ public class GuardSpellManager {
     }
 
     private void categorizeSpell(Identifier id, RegistryEntry<Spell> entry, Spell spell, ItemSource source) {
+        categorizeSpell(id, entry, spell, source, false);
+    }
+
+    private void categorizeSpell(Identifier id, RegistryEntry<Spell> entry, Spell spell, ItemSource source,
+                                 boolean forcePassive) {
         if (spell.type == Spell.Type.MODIFIER) {
             modifierSpells.add(entry);
             if (!guard.getWorld().isClient()) {
@@ -401,7 +442,7 @@ public class GuardSpellManager {
                     Formatting.GRAY);
         }
 
-        boolean isPassive = spell.type == Spell.Type.PASSIVE;
+        boolean isPassive = forcePassive || spell.type == Spell.Type.PASSIVE;
 
         categories = filterCategoriesBySource(spell, categories, source);
         if (!isPassive) {
@@ -431,14 +472,21 @@ public class GuardSpellManager {
         }
 
         for (SpellCategory cat : categories) {
-            CategorizedSpell categorized = new CategorizedSpell(id, entry, cat, isPassive, source);
+            List<CategorizedSpell> target = isPassive ? passiveSpells : activeSpells;
+            if (containsSpellInCategory(target, id, cat)) {
+                continue;
+            }
+            target.add(new CategorizedSpell(id, entry, cat, isPassive, source));
+        }
+    }
 
-            if (isPassive) {
-                passiveSpells.add(categorized);
-            } else {
-                activeSpells.add(categorized);
+    private static boolean containsSpellInCategory(List<CategorizedSpell> spells, Identifier id, SpellCategory category) {
+        for (CategorizedSpell existing : spells) {
+            if (existing.category() == category && existing.spellId().equals(id)) {
+                return true;
             }
         }
+        return false;
     }
 
     private Set<SpellCategory> determineCategories(Spell spell) {

@@ -1,6 +1,7 @@
 package dev.sterner.guardvillagers.common.command;
 
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -8,7 +9,9 @@ import com.mojang.brigadier.suggestion.Suggestions;
 import com.mojang.brigadier.suggestion.SuggestionsBuilder;
 import dev.sterner.guardvillagers.common.debug.GuardDebugManager;
 import dev.sterner.guardvillagers.common.special.GuardEffectiveConfig;
+import dev.sterner.guardvillagers.common.entity.GrantedSpell;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardSpellManager;
 import dev.sterner.guardvillagers.common.special.SpecialGuardDefinition;
 import dev.sterner.guardvillagers.common.special.SpecialGuardRegistry;
 import dev.sterner.guardvillagers.common.special.SpecialGuardSpawner;
@@ -29,7 +32,10 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
+import net.spell_engine.api.spell.registry.SpellRegistry;
+import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -82,6 +88,28 @@ public class GuardDebugCommand {
                                         .then(CommandManager.argument("type", IdentifierArgumentType.identifier())
                                                 .suggests(GuardDebugCommand::suggestSpecialGuardTypes)
                                                 .executes(GuardDebugCommand::summonSpecialGuard))))
+                        .then(CommandManager.literal("spell")
+                                .requires(source -> source.hasPermissionLevel(2))
+                                .then(CommandManager.literal("grant")
+                                        .then(CommandManager.argument("guard", EntityArgumentType.entity())
+                                                .then(CommandManager.argument("spell", IdentifierArgumentType.identifier())
+                                                        .suggests(GuardDebugCommand::suggestSpells)
+                                                        .executes(context -> grantSpell(context, false))
+                                                        .then(CommandManager.argument("passive_only", BoolArgumentType.bool())
+                                                                .executes(context -> grantSpell(
+                                                                        context,
+                                                                        BoolArgumentType.getBool(context, "passive_only")))))))
+                                .then(CommandManager.literal("revoke")
+                                        .then(CommandManager.argument("guard", EntityArgumentType.entity())
+                                                .then(CommandManager.argument("spell", IdentifierArgumentType.identifier())
+                                                        .suggests(GuardDebugCommand::suggestGrantedSpells)
+                                                        .executes(GuardDebugCommand::revokeSpell))))
+                                .then(CommandManager.literal("clear")
+                                        .then(CommandManager.argument("guard", EntityArgumentType.entity())
+                                                .executes(GuardDebugCommand::clearGrantedSpells)))
+                                .then(CommandManager.literal("list")
+                                        .then(CommandManager.argument("guard", EntityArgumentType.entity())
+                                                .executes(GuardDebugCommand::listGuardSpells))))
         );
     }
 
@@ -234,6 +262,134 @@ public class GuardDebugCommand {
         context.getSource().sendFeedback(() ->
                 Text.literal("[Guard #" + guard.getId() + "] Cooldown for " + spellId + " set to " + ticks + " ticks").formatted(Formatting.YELLOW), false);
         return 1;
+    }
+
+    @Nullable
+    private static GuardEntity resolveGuard(CommandContext<ServerCommandSource> context) {
+        try {
+            if (EntityArgumentType.getEntity(context, "guard") instanceof GuardEntity guard) {
+                return guard;
+            }
+            context.getSource().sendError(Text.literal("Target is not a Guard"));
+        } catch (Exception error) {
+            context.getSource().sendError(Text.literal("Failed to get guard: " + error.getMessage()));
+        }
+        return null;
+    }
+
+    private static int grantSpell(CommandContext<ServerCommandSource> context, boolean passiveOnly) {
+        GuardEntity guard = resolveGuard(context);
+        if (guard == null) {
+            return 0;
+        }
+        Identifier spellId = IdentifierArgumentType.getIdentifier(context, "spell");
+        if (SpellRegistry.from(guard.getWorld()).getEntry(spellId).isEmpty()) {
+            context.getSource().sendError(Text.literal("No such spell: " + spellId));
+            return 0;
+        }
+        if (!guard.grantSpell(new GrantedSpell(spellId, passiveOnly))) {
+            context.getSource().sendError(
+                    Text.literal("Guard #" + guard.getId() + " already has " + spellId + " granted"));
+            return 0;
+        }
+        context.getSource().sendFeedback(
+                () -> Text.literal("[Guard #" + guard.getId() + "] Granted " + spellId
+                        + (passiveOnly ? " (passive only)" : ""))
+                        .formatted(Formatting.GREEN),
+                true);
+        return 1;
+    }
+
+    private static int revokeSpell(CommandContext<ServerCommandSource> context) {
+        GuardEntity guard = resolveGuard(context);
+        if (guard == null) {
+            return 0;
+        }
+        Identifier spellId = IdentifierArgumentType.getIdentifier(context, "spell");
+        if (!guard.revokeSpell(spellId)) {
+            context.getSource().sendError(
+                    Text.literal("Guard #" + guard.getId() + " has no granted spell " + spellId));
+            return 0;
+        }
+        context.getSource().sendFeedback(
+                () -> Text.literal("[Guard #" + guard.getId() + "] Revoked " + spellId)
+                        .formatted(Formatting.YELLOW),
+                true);
+        return 1;
+    }
+
+    private static int clearGrantedSpells(CommandContext<ServerCommandSource> context) {
+        GuardEntity guard = resolveGuard(context);
+        if (guard == null) {
+            return 0;
+        }
+        int removed = guard.clearGrantedSpells();
+        context.getSource().sendFeedback(
+                () -> Text.literal("[Guard #" + guard.getId() + "] Cleared " + removed + " granted spell(s)")
+                        .formatted(removed > 0 ? Formatting.YELLOW : Formatting.GRAY),
+                true);
+        return removed;
+    }
+
+    private static int listGuardSpells(CommandContext<ServerCommandSource> context) {
+        GuardEntity guard = resolveGuard(context);
+        if (guard == null) {
+            return 0;
+        }
+        GuardSpellManager manager = guard.getSpellManager();
+        List<GuardSpellManager.CategorizedSpell> all = new ArrayList<>(manager.getAllActiveSpells());
+        all.addAll(manager.getAllPassiveSpells());
+        if (all.isEmpty()) {
+            context.getSource().sendFeedback(
+                    () -> Text.literal("[Guard #" + guard.getId() + "] Knows no spells")
+                            .formatted(Formatting.YELLOW),
+                    false);
+            return 0;
+        }
+        context.getSource().sendFeedback(
+                () -> Text.literal("[Guard #" + guard.getId() + "] Spells (" + all.size() + "):")
+                        .formatted(Formatting.AQUA),
+                false);
+        for (GuardSpellManager.CategorizedSpell spell : all) {
+            Formatting color = spell.source() == GuardSpellManager.ItemSource.GRANTED
+                    ? Formatting.LIGHT_PURPLE
+                    : Formatting.WHITE;
+            String line = "  " + spell.spellId()
+                    + "  " + (spell.isPassive() ? "PASSIVE" : "ACTIVE")
+                    + "  " + spell.category()
+                    + "  " + spell.source();
+            context.getSource().sendFeedback(() -> Text.literal(line).formatted(color), false);
+        }
+        return all.size();
+    }
+
+    private static CompletableFuture<Suggestions> suggestSpells(
+            CommandContext<ServerCommandSource> context,
+            SuggestionsBuilder builder
+    ) {
+        return CommandSource.suggestIdentifiers(
+                SpellRegistry.from(context.getSource().getWorld()).getIds().stream().toList(),
+                builder
+        );
+    }
+
+    private static CompletableFuture<Suggestions> suggestGrantedSpells(
+            CommandContext<ServerCommandSource> context,
+            SuggestionsBuilder builder
+    ) {
+        GuardEntity guard;
+        try {
+            guard = EntityArgumentType.getEntity(context, "guard") instanceof GuardEntity found ? found : null;
+        } catch (Exception error) {
+            guard = null;
+        }
+        if (guard == null) {
+            return Suggestions.empty();
+        }
+        return CommandSource.suggestIdentifiers(
+                guard.getGrantedSpells().stream().map(GrantedSpell::spellId).toList(),
+                builder
+        );
     }
 
     private static CompletableFuture<Suggestions> suggestSpecialGuardTypes(

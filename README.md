@@ -26,6 +26,35 @@ Requires permission level 2 (operator).
 
 ---
 
+## Spell Commands
+
+Grant and remove spells on a living guard at runtime. Same permission level 2.
+
+```
+/guardvillagers spell grant  <guard> <spell_id> [passive_only]
+/guardvillagers spell revoke <guard> <spell_id>
+/guardvillagers spell clear  <guard>
+/guardvillagers spell list   <guard>
+```
+
+`grant` validates the spell against the Spell Engine registry and refuses unknown IDs. Spell IDs
+tab-complete; `revoke` only suggests spells actually granted to that guard.
+
+`list` prints every spell the guard knows with its category and source, so granted spells can be told
+apart from ones coming from equipment:
+
+```
+[Guard #482] Spells (3):
+  wizards:fire_meteor    ACTIVE   PROJECTILE  GRANTED
+  paladins:holy_shock    ACTIVE   PROJECTILE  MAINHAND
+  druids:barkskin        PASSIVE  PASSIVE_DEFENSE  ARMOR
+```
+
+Granting or revoking triggers an immediate spell-manager refresh, and revoking a spell mid-cast
+interrupts that cast.
+
+---
+
 ## Minimal Example
 
 ```json
@@ -54,6 +83,7 @@ Requires permission level 2 (operator).
 | `loot` | object | Death loot configuration. |
 | `equipment` | object | Armor and hand items. |
 | `inventory` | array | Items placed in internal inventory slots (0–5) or the spell slot (slot 6). |
+| `spells` | array | Spells granted directly to the guard, with no item required. Additive over equipment. |
 | `attributes` | object | Entity attribute overrides. |
 | `config_overrides` | object | Per-guard overrides of global config values. |
 | `entity_data` | object | Arbitrary NBT-like key/value data stored on the guard. |
@@ -68,16 +98,50 @@ Requires permission level 2 (operator).
   "weight": 50,
   "max_per_village": 1,
   "biomes": ["#minecraft:is_overworld", "minecraft:plains"],
-  "dimensions": ["minecraft:overworld"]
+  "dimensions": ["minecraft:overworld"],
+  "structures": ["#minecraft:village", "ctov:large/village_plains"],
+  "structure_search_radius": 32
 }
 ```
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `weight` | int | `1` | Relative spawn weight. Higher = more common. Set to `0` to disable natural spawning (summon-only). |
-| `max_per_village` | int | none | Maximum number of this type allowed near a village (proximity-based, ~128 block radius). Omit for no limit. |
+| `max_per_village` | int | none | Maximum number of this type allowed near a village (proximity-based, 96 block radius). Omit for no limit. |
 | `biomes` | array of strings | any | List of biome IDs or tags (e.g. `"#minecraft:is_overworld"`) where this guard can spawn. Omit to allow all biomes. |
 | `dimensions` | array of strings | any | List of dimension IDs (e.g. `"minecraft:overworld"`) where this guard can spawn. Omit to allow all dimensions. |
+| `structures` | array of strings | any | List of structure IDs or structure tags. The guard only spawns if its position is **inside** one of these structures. Omit to allow anywhere. |
+| `structure_search_radius` | int | `0` | Horizontal radius (blocks) to probe outward when testing `structures`. `0` tests only the exact spawn position. |
+
+#### `structures`
+
+Restricts the guard to positions inside a matching generated structure. Accepts both exact IDs and tags:
+
+```json
+"structures": ["#minecraft:village"]
+"structures": ["lios_outlandish_villages:hobbit_village"]
+"structures": ["ctov:large/village_plains", "ctov:medium/village_plains"]
+```
+
+A leading `#` marks a structure tag (e.g. `"#minecraft:village"`, `"#ctov:large_village"`). Anything else
+is treated as an exact structure ID. Unknown IDs never match — if a mod isn't loaded, that entry is simply
+inert rather than an error.
+
+The test asks whether the position lies within the structure's bounding box, so it is true anywhere in the
+village's footprint, not merely near its center.
+
+**`structure_search_radius`** exists because a guard can spawn just outside the structure bounds — at the
+edge of a village's farmland, for example. With a non-zero radius the check probes outward on a 16-block
+grid and matches if any probe lands inside the structure. Keep it small; each probe is a structure lookup.
+
+| Value | Effect |
+|---|---|
+| `0` (default) | Strict — the guard must stand inside the structure box. |
+| `16`–`32` | Tolerant of village-edge spawns. Recommended when using `#minecraft:village`. |
+| `64`+ | Loose. Can match a neighbouring structure; prefer `biomes` for broad control. |
+
+Filters combine with **AND** across categories and **OR** within one category. So `biomes` + `structures`
+both have to pass, while any single entry inside `structures` satisfies that category.
 
 ---
 
@@ -240,6 +304,41 @@ An array of slot entries. Each entry places an item into a specific internal inv
 | `stack` or `item` | object | The item to place (supports full Minecraft item NBT/components). |
 | `chance` | float `0.0–1.0` | Probability this item is placed. Roll happens at spawn. |
 | `choices` | array | Weighted random pick — see [choices](#choices-array). |
+
+---
+
+### `spells`
+
+Grants spells to the guard directly, with no scroll, spell book, or weapon required. Additive — these
+stack on top of whatever the guard's equipment already provides, and they survive gear changes.
+
+```json
+"spells": [
+  "wizards:fire_meteor",
+  "paladins:flash_heal",
+  { "id": "druids:barkskin", "passive_only": true },
+  { "id": "bards_rpg:song_of_celerity", "chance": 0.5 }
+]
+```
+
+Entries are either a plain spell ID string, or an object:
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `id` | string | required | Spell ID. Must exist in the Spell Engine registry, or the entry is skipped with a warning. |
+| `passive_only` | bool | `false` | Categorize as a passive even if the spell would normally be active. |
+| `chance` | float `0.0–1.0` | `1.0` | Probability the spell is granted. Rolled once at spawn, like `inventory` and `death_drops`. |
+
+Granted spells appear with source `GRANTED` in the spell manager, and are stored on the guard as NBT
+under `GrantedSpells`, so they persist across saves.
+
+**Duplicates are ignored.** If a granted spell is already provided by the guard's gear, the gear-derived
+entry wins and the grant is skipped for that category — the spell will not be double-counted when the
+guard picks what to cast.
+
+There is deliberately **no per-grant tier field**. Spell tier is a property of the spell definition
+itself (`Spell.tier`), and the "best castable spell" logic reads it from the registry, so a per-grant
+override would be stored but never honored.
 
 ---
 

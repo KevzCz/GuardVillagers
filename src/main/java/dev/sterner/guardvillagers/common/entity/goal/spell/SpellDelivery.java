@@ -1692,6 +1692,12 @@ public class SpellDelivery {
             }
         }
 
+    private static float meleeAttackCharge(SpellContext context) {
+        SpellHelper.ImpactContext impactContext = context.impactContext();
+        float charge = impactContext != null ? impactContext.charge() : 1.0f;
+        return MathHelper.clamp(charge, 0.0f, 1.0f);
+    }
+
     private static Melee.Attack toMeleeAttack(SpellContext context, Spell.Delivery.Melee.Attack attack) {
         float range = meleeAttackRange(context.caster(), context.entry());
 
@@ -1710,7 +1716,7 @@ public class SpellDelivery {
                 range,
                 attack.hitbox,
                 attack.animation,
-                Melee.AttackContext.of(context.spellId(), attackId)
+                Melee.AttackContext.of(context.spellId(), attackId, meleeAttackCharge(context))
         );
     }
 

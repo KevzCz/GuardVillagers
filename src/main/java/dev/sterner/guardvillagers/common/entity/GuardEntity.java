@@ -137,6 +137,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     
     public int animationTaskGeneration = 0;
     private final Set<UUID> spellSummons = new HashSet<>();
+    private final List<GrantedSpell> grantedSpells = new ArrayList<>();
     @Nullable private Identifier specialGuardType;
     private Map<String, JsonElement> configOverrides = Map.of();
     private GuardVillagersConfig.SupportBuffPriority buffPriority = GuardVillagersConfig.SupportBuffPriority.OWNER;
@@ -571,6 +572,61 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         this.guardInventory.setStack(SPELL_SLOT_INDEX, stack);
     }
 
+    public List<GrantedSpell> getGrantedSpells() {
+        return List.copyOf(this.grantedSpells);
+    }
+
+    public boolean grantSpell(GrantedSpell granted) {
+        if (granted == null) {
+            return false;
+        }
+        for (GrantedSpell existing : this.grantedSpells) {
+            if (existing.spellId().equals(granted.spellId())) {
+                return false;
+            }
+        }
+        this.grantedSpells.add(granted);
+        this.getSpellManager().refresh();
+        return true;
+    }
+
+    public boolean revokeSpell(Identifier spellId) {
+        if (spellId == null) {
+            return false;
+        }
+        if (!this.grantedSpells.removeIf(granted -> granted.spellId().equals(spellId))) {
+            return false;
+        }
+        this.getSpellManager().refresh();
+        return true;
+    }
+
+    public int clearGrantedSpells() {
+        int removed = this.grantedSpells.size();
+        if (removed > 0) {
+            this.grantedSpells.clear();
+            this.getSpellManager().refresh();
+        }
+        return removed;
+    }
+
+    public void setGrantedSpells(List<GrantedSpell> granted) {
+        this.grantedSpells.clear();
+        for (GrantedSpell entry : granted) {
+            boolean duplicate = false;
+            for (GrantedSpell existing : this.grantedSpells) {
+                if (existing.spellId().equals(entry.spellId())) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (!duplicate) {
+                this.grantedSpells.add(entry);
+            }
+        }
+        this.getSpellManager().refresh();
+    }
+
     public static int getRandomTypeForBiome(WorldAccess world, BlockPos pos) {
         VillagerType type = VillagerType.forBiome(world.getBiome(pos));
         if (type == VillagerType.SNOW) return 6;
@@ -606,6 +662,9 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
 
             Registries.ATTRIBUTE.getEntry(critChanceId).ifPresent(attr -> builder.add(attr, 105));
             Registries.ATTRIBUTE.getEntry(critDamageId).ifPresent(attr -> builder.add(attr, 150));
+
+            Registries.ATTRIBUTE.getEntry(Identifier.of("ranged_weapon", "damage"))
+                    .ifPresent(attr -> builder.add(attr, 0.0));
 
         } catch (Exception e) {
             GuardVillagers.LOGGER.error("Error adding spell power attributes to GuardEntity", e);
@@ -746,6 +805,15 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         } else {
             this.attackMobs = List.of();
         }
+        this.grantedSpells.clear();
+        if (nbt.contains("GrantedSpells")) {
+            for (NbtElement el : nbt.getList("GrantedSpells", NbtElement.COMPOUND_TYPE)) {
+                GrantedSpell granted = GrantedSpell.fromNbt((NbtCompound) el);
+                if (granted != null) {
+                    this.grantedSpells.add(granted);
+                }
+            }
+        }
         this.hiringItemOverride = nbt.contains("HiringItemOverride")
                 ? Identifier.tryParse(nbt.getString("HiringItemOverride")) : null;
         this.hiringCostOverride = nbt.contains("HiringCostOverride") ? nbt.getInt("HiringCostOverride") : null;
@@ -852,6 +920,13 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
             NbtList attackMobsNbt = new NbtList();
             for (Identifier id : this.attackMobs) attackMobsNbt.add(NbtString.of(id.toString()));
             nbt.put("AttackMobs", attackMobsNbt);
+        }
+        if (!this.grantedSpells.isEmpty()) {
+            NbtList grantedNbt = new NbtList();
+            for (GrantedSpell granted : this.grantedSpells) {
+                grantedNbt.add(granted.toNbt());
+            }
+            nbt.put("GrantedSpells", grantedNbt);
         }
         if (this.hiringItemOverride != null) {
             nbt.putString("HiringItemOverride", this.hiringItemOverride.toString());

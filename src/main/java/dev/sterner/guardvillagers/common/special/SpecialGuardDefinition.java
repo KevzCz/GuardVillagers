@@ -15,11 +15,15 @@ import java.util.Map;
 
 public final class SpecialGuardDefinition {
 
+    public static final int DEFAULT_STRUCTURE_SEARCH_RADIUS = 0;
+
     private final Identifier id;
     private final int spawnWeight;
     @Nullable private final Integer maxPerVillage;
     private final List<Identifier> biomeFilters;
     private final List<Identifier> dimensionFilters;
+    private final List<Identifier> structureFilters;
+    private final int structureSearchRadius;
     @Nullable private final String displayName;
     private final boolean nameVisible;
     @Nullable private final Integer variant;
@@ -40,6 +44,7 @@ public final class SpecialGuardDefinition {
     @Nullable private final Identifier deathLootTable;
     private final List<JsonElement> deathDrops;
     private final Map<String, JsonElement> equipment;
+    private final List<GrantedSpellEntry> spells;
     private final List<InventorySlot> inventory;
     private final Map<String, Double> attributes;
     private final Map<String, JsonElement> configOverrides;
@@ -52,6 +57,8 @@ public final class SpecialGuardDefinition {
             @Nullable Integer maxPerVillage,
             List<Identifier> biomeFilters,
             List<Identifier> dimensionFilters,
+            List<Identifier> structureFilters,
+            int structureSearchRadius,
             @Nullable String displayName,
             boolean nameVisible,
             @Nullable Integer variant,
@@ -72,6 +79,7 @@ public final class SpecialGuardDefinition {
             @Nullable Identifier deathLootTable,
             List<JsonElement> deathDrops,
             Map<String, JsonElement> equipment,
+            List<GrantedSpellEntry> spells,
             List<InventorySlot> inventory,
             Map<String, Double> attributes,
             Map<String, JsonElement> configOverrides,
@@ -83,6 +91,8 @@ public final class SpecialGuardDefinition {
         this.maxPerVillage = maxPerVillage;
         this.biomeFilters = biomeFilters;
         this.dimensionFilters = dimensionFilters;
+        this.structureFilters = structureFilters;
+        this.structureSearchRadius = structureSearchRadius;
         this.displayName = displayName;
         this.nameVisible = nameVisible;
         this.variant = variant;
@@ -103,6 +113,7 @@ public final class SpecialGuardDefinition {
         this.deathLootTable = deathLootTable;
         this.deathDrops = deathDrops;
         this.equipment = equipment;
+        this.spells = spells;
         this.inventory = inventory;
         this.attributes = attributes;
         this.configOverrides = configOverrides;
@@ -120,6 +131,10 @@ public final class SpecialGuardDefinition {
         Integer maxPerVillage = spawn.has("max_per_village") ? Math.max(0, spawn.get("max_per_village").getAsInt()) : null;
         List<Identifier> biomes = readIdentifierList(spawn.get("biomes"));
         List<Identifier> dimensions = readIdentifierList(spawn.get("dimensions"));
+        List<Identifier> structures = readIdentifierList(spawn.get("structures"));
+        int structureSearchRadius = spawn.has("structure_search_radius")
+                ? Math.max(0, spawn.get("structure_search_radius").getAsInt())
+                : DEFAULT_STRUCTURE_SEARCH_RADIUS;
 
         String name = stringOrNull(display, "name");
         boolean nameVisible = !display.has("name_visible") || display.get("name_visible").getAsBoolean();
@@ -167,6 +182,8 @@ public final class SpecialGuardDefinition {
                 equipment.put(entry.getKey(), entry.getValue());
             }
         }
+
+        List<GrantedSpellEntry> spells = readGrantedSpells(root.get("spells"));
 
         List<InventorySlot> inventory = new ArrayList<>();
         if (root.has("inventory") && root.get("inventory").isJsonArray()) {
@@ -224,6 +241,8 @@ public final class SpecialGuardDefinition {
                 maxPerVillage,
                 biomes,
                 dimensions,
+                structures,
+                structureSearchRadius,
                 name,
                 nameVisible,
                 variant,
@@ -244,6 +263,7 @@ public final class SpecialGuardDefinition {
                 deathLootTable,
                 deathDrops,
                 equipment,
+                spells,
                 inventory,
                 attributes,
                 configOverrides,
@@ -296,6 +316,39 @@ public final class SpecialGuardDefinition {
         return null;
     }
 
+    private static List<GrantedSpellEntry> readGrantedSpells(@Nullable JsonElement element) {
+        if (element == null || !element.isJsonArray()) {
+            return List.of();
+        }
+        List<GrantedSpellEntry> entries = new ArrayList<>();
+        for (JsonElement raw : element.getAsJsonArray()) {
+            if (raw.isJsonPrimitive()) {
+                Identifier id = Identifier.tryParse(raw.getAsString());
+                if (id != null) {
+                    entries.add(new GrantedSpellEntry(id, false, 1.0f));
+                }
+                continue;
+            }
+            if (!raw.isJsonObject()) {
+                continue;
+            }
+            JsonObject obj = raw.getAsJsonObject();
+            if (!obj.has("id") || !obj.get("id").isJsonPrimitive()) {
+                continue;
+            }
+            Identifier id = Identifier.tryParse(obj.get("id").getAsString());
+            if (id == null) {
+                continue;
+            }
+            boolean passiveOnly = obj.has("passive_only") && obj.get("passive_only").getAsBoolean();
+            float chance = obj.has("chance")
+                    ? Math.max(0f, Math.min(1f, obj.get("chance").getAsFloat()))
+                    : 1.0f;
+            entries.add(new GrantedSpellEntry(id, passiveOnly, chance));
+        }
+        return entries;
+    }
+
     private static List<Identifier> readIdentifierList(@Nullable JsonElement element) {
         if (element == null || !element.isJsonArray()) {
             return List.of();
@@ -332,6 +385,14 @@ public final class SpecialGuardDefinition {
 
     public List<Identifier> dimensionFilters() {
         return dimensionFilters;
+    }
+
+    public List<Identifier> structureFilters() {
+        return structureFilters;
+    }
+
+    public int structureSearchRadius() {
+        return structureSearchRadius;
     }
 
     @Nullable
@@ -424,6 +485,10 @@ public final class SpecialGuardDefinition {
         return equipment;
     }
 
+    public List<GrantedSpellEntry> spells() {
+        return spells;
+    }
+
     public List<InventorySlot> inventory() {
         return inventory;
     }
@@ -446,4 +511,6 @@ public final class SpecialGuardDefinition {
     }
 
     public record InventorySlot(int slot, JsonElement itemConfig) {}
+
+    public record GrantedSpellEntry(Identifier spellId, boolean passiveOnly, float chance) {}
 }

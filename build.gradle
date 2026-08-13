@@ -112,7 +112,7 @@ publishMods {
     }
 
     modrinth {
-        projectId = "ZfwAPOf"
+        projectId = "ZfxwAPOf"
         accessToken = providers.gradleProperty("modrinthToken")
             .orElse(providers.environmentVariable("MODRINTH_TOKEN"))
         minecraftVersions.add("1.21.1")

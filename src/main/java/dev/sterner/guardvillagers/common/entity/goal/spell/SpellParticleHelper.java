@@ -1,23 +1,23 @@
 package dev.sterner.guardvillagers.common.entity.goal.spell;
 
-import net.spell_engine.api.spell.fx.ParticleBatch;
+import net.spell_engine.api.spell.fx.ParticleGroup;
 
-import java.util.Arrays;
+import java.util.List;
 
 public final class SpellParticleHelper {
 
     private SpellParticleHelper() {}
 
-    public static ParticleBatch[] sanitize(ParticleBatch[] batches) {
-        if (batches == null || batches.length == 0) {
-            return batches;
+    public static List<ParticleGroup> sanitize(List<ParticleGroup> groups) {
+        if (groups == null || groups.isEmpty()) {
+            return groups;
         }
-        return Arrays.stream(batches)
-                .filter(batch -> batch != null && batch.origin != null)
-                .toArray(ParticleBatch[]::new);
+        return groups.stream()
+                .filter(group -> group != null && group.batch != null && group.batch.anchor != null)
+                .toList();
     }
 
-    public static boolean isEmpty(ParticleBatch[] batches) {
-        return batches == null || batches.length == 0;
+    public static boolean isEmpty(List<ParticleGroup> groups) {
+        return groups == null || groups.isEmpty();
     }
 }

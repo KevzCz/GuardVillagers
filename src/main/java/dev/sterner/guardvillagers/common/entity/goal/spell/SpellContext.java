@@ -7,7 +7,8 @@ import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellExecution;
+import net.spell_engine.internals.target.SpellIntents;
 import net.spell_power.api.SpellPower;
 
 import java.util.List;
@@ -18,7 +19,7 @@ public record SpellContext(
         Spell spell,
         LivingEntity caster,
         LivingEntity target,
-        SpellHelper.ImpactContext impactContext
+        SpellExecution.ImpactContext impactContext
 ) {
     public List<Spell.Impact> getImpacts() {
         if (caster instanceof GuardEntity guard) {
@@ -37,7 +38,7 @@ public record SpellContext(
         private Spell spell;
         private LivingEntity caster;
         private LivingEntity target;
-        private SpellHelper.ImpactContext impactContext;
+        private SpellExecution.ImpactContext impactContext;
 
         public Builder spellId(Identifier id) {
             this.spellId = id;
@@ -95,10 +96,10 @@ public record SpellContext(
                     }
                 }
 
-                this.impactContext = new SpellHelper.ImpactContext()
+                this.impactContext = new SpellExecution.ImpactContext()
                         .power(powerResult)
                         .position(caster.getEyePos())
-                        .target(SpellHelper.focusMode(spell));
+                        .target(SpellIntents.focusMode(spell));
             }
             return this;
         }

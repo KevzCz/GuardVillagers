@@ -12,7 +12,8 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellExecution;
+import net.spell_engine.internals.target.SpellIntents;
 import net.spell_engine.internals.target.EntityRelations;
 import net.spell_engine.internals.target.SpellTarget;
 import net.spell_engine.utils.TargetHelper;
@@ -106,13 +107,13 @@ public final class SpellCombatTargeting {
         }
 
         float range = scaledRange(caster, context.entry(), spell.range);
-        SpellTarget.FocusMode focusMode = SpellHelper.focusMode(spell);
+        SpellTarget.FocusMode focusMode = SpellIntents.focusMode(spell);
         Predicate<Entity> selectionPredicate = target -> {
-            var deliveryIntent = SpellHelper.deliveryIntent(spell);
+            var deliveryIntent = SpellIntents.deliveryIntent(spell);
             boolean intentAllows = deliveryIntent.isPresent()
                     && EntityRelations.actionAllowed(focusMode, deliveryIntent.get(), caster, target);
             for (Spell.Impact impact : spell.impacts) {
-                SpellTarget.Intent intent = SpellHelper.impactIntent(impact.action);
+                SpellTarget.Intent intent = SpellIntents.impactIntent(impact.action);
                 boolean allowed = impact.action.apply_to_caster
                         ? target == caster
                         : EntityRelations.actionAllowed(focusMode, intent, caster, target);
@@ -166,7 +167,7 @@ public final class SpellCombatTargeting {
             float distanceMult = area != null
                     ? distanceMultiplier(area, squaredRange, dropoffCenter, target)
                     : 1.0f;
-            SpellHelper.ImpactContext impactCtx = context.impactContext()
+            SpellExecution.ImpactContext impactCtx = context.impactContext()
                     .position(impactPosition(target, center))
                     .distance(distanceMult);
 

@@ -54,16 +54,17 @@ import net.minecraft.village.*;
 import net.minecraft.world.*;
 import net.spell_engine.api.spell.*;
 import net.spell_engine.internals.*;
-import net.spell_engine.internals.arrow.*;
+import net.spell_engine.internals.cost.*;
+import net.spell_engine.internals.delivery.arrow.*;
 import net.spell_engine.internals.casting.*;
-import net.spell_engine.internals.melee.*;
+import net.spell_engine.internals.delivery.melee.*;
 import org.jetbrains.annotations.*;
 
 import java.util.*;
 import java.util.function.*;
 import java.util.stream.*;
 
-public class GuardEntity extends TameableEntity implements CrossbowUser, RangedAttackMob, Angerable, InventoryChangedListener, InteractionObserver, SpellCasterEntity {
+public class GuardEntity extends TameableEntity implements CrossbowUser, RangedAttackMob, Angerable, InventoryChangedListener, InteractionObserver, net.spell_engine.internals.casting.SpellCaster.Entity {
     private static final EntityAttributeModifier USE_ITEM_SPEED_PENALTY = new EntityAttributeModifier(GuardVillagers.id("speed_penalty"), -0.25D, EntityAttributeModifier.Operation.ADD_VALUE);
     private static final TrackedData<Optional<BlockPos>> GUARD_POS = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.OPTIONAL_BLOCK_POS);
     private static final TrackedData<Boolean> PATROLLING = DataTracker.registerData(GuardEntity.class, TrackedDataHandlerRegistry.BOOLEAN);
@@ -165,7 +166,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
 
     @Override
     public boolean isCastingSpell() {
-        return this.dataTracker.get(CASTING_SPELL) || SpellCasterEntity.super.isCastingSpell();
+        return this.dataTracker.get(CASTING_SPELL) || net.spell_engine.internals.casting.SpellCaster.Entity.super.isCastingSpell();
     }
 
     
@@ -413,7 +414,6 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
     }
 
     
-    @Override
     public SpellCooldownManager getCooldownManager() {
         if (this.cooldownManager == null) {
             this.cooldownManager = new SpellCooldownManager(this);
@@ -421,17 +421,14 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         return this.cooldownManager;
     }
 
-    @Override
     public void setChannelTickIndex(int index) {
         this.channelTickIndex = index;
     }
 
-    @Override
     public int getChannelTickIndex() {
         return this.channelTickIndex;
     }
 
-    @Override
     public void setSpellCastProcess(@Nullable SpellCast.Process process) {
         this.spellCastProcess = process;
     }
@@ -442,7 +439,6 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         return this.spellCastProcess;
     }
 
-    @Override
     public Spell getCurrentSpell() {
         if (this.spellCastProcess != null && this.spellCastProcess.spell() != null) {
             return this.spellCastProcess.spell().value();
@@ -450,7 +446,6 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         return null;
     }
 
-    @Override
     public float getCurrentCastingSpeed() {
         if (this.spellCastProcess != null) {
             return this.spellCastProcess.speed();
@@ -458,12 +453,10 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         return 1.0F;
     }
 
-    @Override
     public void setArrowShootContext(ArrowShootContext context) {
         this.arrowShootContext = context;
     }
 
-    @Override
     public ArrowShootContext getArrowShootContext() {
         return this.arrowShootContext;
     }
@@ -523,23 +516,19 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
         return cachedBeam;
     }
 
-    @Override
     public void setMeleeSkillAttack(Melee.ActiveAttack attack) {
         this.meleeSkillAttack = attack;
     }
 
-    @Override
     public void setActiveMeleeSkill(@Nullable RegistryEntry<Spell> spell) {
         this.activeMeleeSkill = spell;
     }
 
-    @Override
     @Nullable
     public RegistryEntry<Spell> getActiveMeleeSkill() {
         return this.activeMeleeSkill;
     }
 
-    @Override
     public float getExtraSlipperiness() {
         if (this.meleeSkillAttack != null) {
             return this.meleeSkillAttack.attack.movement_slip();
@@ -2102,7 +2091,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
                 Formatting.GRAY);
 
         if (shootContext != null && shootContext.firedBySpell && !shootContext.activeSpells.isEmpty()) {
-            if (projectile instanceof net.spell_engine.internals.arrow.ArrowExtension arrowExt) {
+            if (projectile instanceof net.spell_engine.internals.delivery.arrow.ArrowExtension arrowExt) {
                 GuardDebugManager.broadcast(this,
                         "🎯 Applying " + shootContext.activeSpells.size() + " spell effect(s) to arrow entity",
                         Formatting.LIGHT_PURPLE);
@@ -2113,7 +2102,7 @@ public class GuardEntity extends TameableEntity implements CrossbowUser, RangedA
                             Formatting.GOLD);
 
                     arrowExt.applyArrowPerks(spellEntry,
-                            net.spell_engine.internals.arrow.ArrowHelper.effectiveArrowPerks(this, spellEntry));
+                            net.spell_engine.internals.delivery.arrow.ArrowHelper.effectiveArrowPerks(this, spellEntry));
 
                     GuardDebugManager.broadcast(this,
                             "    ✅ Spell added to arrow carried list",

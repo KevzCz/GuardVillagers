@@ -9,7 +9,7 @@ import net.minecraft.util.math.Box;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.melee.OrientedBoundingBox;
+import net.spell_engine.internals.delivery.melee.OrientedBoundingBox;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;

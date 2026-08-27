@@ -15,11 +15,15 @@ import net.minecraft.util.math.*;
 import net.minecraft.world.*;
 import net.spell_engine.api.spell.*;
 import net.spell_engine.api.spell.event.*;
-import net.spell_engine.api.spell.fx.ParticleBatch;
+import net.spell_engine.api.spell.fx.Fx;
+import net.spell_engine.api.spell.fx.ParticleGroup;
 import net.spell_engine.fx.ParticleHelper;
 import net.spell_engine.internals.*;
-import net.spell_engine.internals.arrow.*;
-import net.spell_engine.internals.melee.Melee;
+import net.spell_engine.internals.impact.SpellImpacts;
+import net.spell_engine.internals.delivery.CloudPlacer;
+import net.spell_engine.internals.delivery.ProjectileLauncher;
+import net.spell_engine.internals.delivery.arrow.*;
+import net.spell_engine.internals.delivery.melee.Melee;
 import net.spell_engine.utils.TargetHelper;
 import net.spell_power.api.*;
 import net.minecraft.entity.mob.MobEntity;
@@ -36,7 +40,7 @@ public class SpellDelivery {
             Entity source,
             RegistryEntry<Spell> entry,
             List<Spell.Impact> impacts,
-            SpellHelper.ImpactContext ctx
+            SpellExecution.ImpactContext ctx
     ) {
         if (caster instanceof GuardEntity guard
                 && target instanceof LivingEntity livingTarget
@@ -61,7 +65,7 @@ public class SpellDelivery {
                     .toList();
             if (impacts.isEmpty()) return false;
         }
-        boolean success = SpellHelper.performImpacts(world, caster, target, source, entry, impacts, ctx);
+        boolean success = SpellImpacts.performImpacts(world, caster, target, source, entry, impacts, ctx);
         if (target instanceof GuardEntity guard) {
             GuardSpellCooldowns.applyCooldownImpacts(guard, impacts);
         }
@@ -236,18 +240,13 @@ public class SpellDelivery {
         }
         LivingEntity caster = context.caster();
 
-        ParticleBatch[] releaseParticles = SpellParticleHelper.sanitize(spell.release.particles);
-        if (!SpellParticleHelper.isEmpty(releaseParticles)) {
-            ParticleHelper.sendBatches(caster, releaseParticles);
-        }
-        ParticleBatch[] scaledSource = SpellParticleHelper.sanitize(spell.release.particles_scaled_with_ranged);
-        if (!SpellParticleHelper.isEmpty(scaledSource)) {
+        if (spell.release != null && spell.release.visuals != null) {
             float range = meleeAttackRange(caster, context.entry());
-            ParticleBatch[] scaled = new ParticleBatch[scaledSource.length];
-            for (int i = 0; i < scaled.length; i++) {
-                scaled[i] = scaledSource[i].copy().scale(range);
+            Fx.Visuals resolved = spell.release.visuals.resolved(Fx.Context.ofRange(range));
+            List<ParticleGroup> releaseParticles = SpellParticleHelper.sanitize(resolved.particles);
+            if (!SpellParticleHelper.isEmpty(releaseParticles)) {
+                ParticleHelper.sendBatches(caster, releaseParticles);
             }
-            ParticleHelper.sendBatches(caster, scaled);
         }
         if (shouldPlayReleaseSound(context)) {
             GuardSpellSounds.playRelease(caster, spell);
@@ -263,9 +262,9 @@ public class SpellDelivery {
                 target = liveTarget;
             }
         }
-        SpellHelper.ImpactContext base = context.impactContext();
+        SpellExecution.ImpactContext base = context.impactContext();
         Vec3d pos = resolveImpactPosition(context);
-        SpellHelper.ImpactContext refreshed = new SpellHelper.ImpactContext(
+        SpellExecution.ImpactContext refreshed = new SpellExecution.ImpactContext(
                 base.channel(),
                 base.distance(),
                 pos,
@@ -285,12 +284,12 @@ public class SpellDelivery {
 
     private static SpellContext withChannelContext(SpellContext context, int channelTickIndex) {
         Spell spell = context.spell();
-        SpellHelper.ImpactContext base = context.impactContext();
+        SpellExecution.ImpactContext base = context.impactContext();
         float channelMult = 1f;
-        if (SpellHelper.isChanneled(spell) && channelTickIndex >= 0) {
-            channelMult = SpellHelper.channelValueMultiplier(spell);
+        if (SpellParameters.isChanneled(spell) && channelTickIndex >= 0) {
+            channelMult = SpellParameters.channelValueMultiplier(spell);
         }
-        SpellHelper.ImpactContext updated = new SpellHelper.ImpactContext(
+        SpellExecution.ImpactContext updated = new SpellExecution.ImpactContext(
                 channelMult,
                 base.distance(),
                 base.position(),
@@ -343,10 +342,10 @@ public class SpellDelivery {
         World world = caster.getWorld();
         Vec3d impactPos = resolveImpactPosition(context);
         Entity exclude = context.target();
-        SpellHelper.ImpactContext areaContext = context.impactContext().position(impactPos);
+        SpellExecution.ImpactContext areaContext = context.impactContext().position(impactPos);
 
         if (!(caster instanceof GuardEntity guard)) {
-            boolean success = SpellHelper.lookupAndPerformAreaImpact(
+            boolean success = SpellImpacts.lookupAndPerformAreaImpact(
                     spell.area_impact, context.entry(), caster, exclude, caster,
                     context.getImpacts(), areaContext, false);
             if (success && exclude instanceof LivingEntity livingTarget) {
@@ -366,7 +365,7 @@ public class SpellDelivery {
         for (Entity entity : areaTargets) {
             if (!(entity instanceof LivingEntity target)) continue;
             Vec3d pos = SpellCombatTargeting.impactPosition(target, SpellCombatTargeting.casterCenter(caster));
-            SpellHelper.ImpactContext targetCtx = areaContext.position(pos);
+            SpellExecution.ImpactContext targetCtx = areaContext.position(pos);
             if (performImpacts(world, caster, target, target, context.entry(), context.getImpacts(), targetCtx)) {
                 hits++;
                 triggerImpactFollowUps(caster, target, context);
@@ -420,7 +419,7 @@ public class SpellDelivery {
             orientCasterTowardTarget(context);
 
             try {
-                SpellHelper.shootProjectile(
+                ProjectileLauncher.shootProjectile(
                         context.caster().getWorld(),
                         context.caster(),
                         context.target(),
@@ -463,7 +462,7 @@ public class SpellDelivery {
 
         Vec3d targetPos = context.target() != null ? context.target().getPos() : context.caster().getPos();
 
-        SpellHelper.fallProjectile(
+        ProjectileLauncher.fallProjectile(
                 context.caster().getWorld(),
                 context.caster(),
                 context.target(),
@@ -489,7 +488,7 @@ public class SpellDelivery {
 
         Vec3d targetPos = context.target() != null ? context.target().getPos() : context.caster().getPos();
 
-        SpellHelper.placeCloud(
+        CloudPlacer.placeCloud(
                 context.caster().getWorld(),
                 context.caster(),
                 context.target(),
@@ -578,7 +577,7 @@ public class SpellDelivery {
 
     private static boolean shouldPlayReleaseSound(SpellContext context) {
         Spell spell = context.spell();
-        if (!SpellHelper.isChanneled(spell)
+        if (!SpellParameters.isChanneled(spell)
                 || spell.active == null
                 || spell.active.cast == null
                 || spell.active.cast.channelTicks() <= 0) {
@@ -774,7 +773,7 @@ public class SpellDelivery {
             if (!(entity instanceof LivingEntity target)) {
                 continue;
             }
-            SpellHelper.ImpactContext impactCtx = context.impactContext()
+            SpellExecution.ImpactContext impactCtx = context.impactContext()
                     .position(SpellCombatTargeting.impactPosition(target, center));
             if (performImpacts(
                     world,
@@ -916,7 +915,7 @@ public class SpellDelivery {
 
         Spell spell = context.spell();
 
-        SpellHelper.ImpactContext posContext = new SpellHelper.ImpactContext()
+        SpellExecution.ImpactContext posContext = new SpellExecution.ImpactContext()
                 .power(context.impactContext().power())
                 .position(position);
 
@@ -1050,13 +1049,13 @@ public class SpellDelivery {
             }
 
             Vec3d targetLocation = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
-            SpellHelper.ImpactContext impactContext = context.impactContext().position(targetLocation);
+            SpellExecution.ImpactContext impactContext = context.impactContext().position(targetLocation);
 
             boolean success = deliverForLivingEntity(
                     caster.getWorld(),
                     context.entry(),
                     caster,
-                    List.of(new SpellHelper.DeliveryTarget(target, impactContext)),
+                    List.of(new SpellExecution.DeliveryTarget(target, impactContext)),
                     impactContext,
                     targetLocation,
                     spell
@@ -1082,8 +1081,8 @@ public class SpellDelivery {
             World world,
             RegistryEntry<Spell> spellEntry,
             LivingEntity caster,
-            List<SpellHelper.DeliveryTarget> targets,
-            SpellHelper.ImpactContext context,
+            List<SpellExecution.DeliveryTarget> targets,
+            SpellExecution.ImpactContext context,
             Vec3d targetLocation,
             Spell spell
     ) {
@@ -1123,13 +1122,13 @@ public class SpellDelivery {
             case DIRECT -> {
                 Vec3d casterPos = caster.getPos().add(0.0, caster.getHeight() / 2.0, 0.0);
 
-                for (SpellHelper.DeliveryTarget targeted : targets) {
+                for (SpellExecution.DeliveryTarget targeted : targets) {
                     Entity target = targeted.entity();
                     Vec3d position = target.getPos()
                             .add(0.0, target.getHeight() / 2.0, 0.0)
                             .lerp(casterPos, 0.001);
 
-                    SpellHelper.ImpactContext targetContext = targeted.context().position(position);
+                    SpellExecution.ImpactContext targetContext = targeted.context().position(position);
 
                     boolean result = performImpacts(
                             world,
@@ -1145,8 +1144,8 @@ public class SpellDelivery {
                 }
             }
             case PROJECTILE -> {
-                for (SpellHelper.DeliveryTarget targeted : targets) {
-                    SpellHelper.shootProjectile(
+                for (SpellExecution.DeliveryTarget targeted : targets) {
+                    ProjectileLauncher.shootProjectile(
                             world,
                             caster,
                             targeted.entity(),
@@ -1157,8 +1156,8 @@ public class SpellDelivery {
                 delivered = true;
             }
             case METEOR -> {
-                for (SpellHelper.DeliveryTarget targeted : targets) {
-                    SpellHelper.fallProjectile(
+                for (SpellExecution.DeliveryTarget targeted : targets) {
+                    ProjectileLauncher.fallProjectile(
                             world,
                             caster,
                             targeted.entity(),
@@ -1170,8 +1169,8 @@ public class SpellDelivery {
                 delivered = true;
             }
             case CLOUD -> {
-                for (SpellHelper.DeliveryTarget targeted : targets) {
-                    SpellHelper.placeCloud(
+                for (SpellExecution.DeliveryTarget targeted : targets) {
+                    CloudPlacer.placeCloud(
                             world,
                             caster,
                             targeted.entity(),
@@ -1192,22 +1191,22 @@ public class SpellDelivery {
     private static boolean performCustomImpactsForNonPlayer(
             World world,
             LivingEntity caster,
-            List<SpellHelper.DeliveryTarget> targets,
+            List<SpellExecution.DeliveryTarget> targets,
             RegistryEntry<Spell> spellEntry,
             Spell spell,
-            SpellHelper.ImpactContext context
+            SpellExecution.ImpactContext context
     ) {
         boolean anySuccess = false;
 
         Vec3d casterPos = caster.getPos().add(0.0, caster.getHeight() / 2.0, 0.0);
 
-        for (SpellHelper.DeliveryTarget targeted : targets) {
+        for (SpellExecution.DeliveryTarget targeted : targets) {
             Entity target = targeted.entity();
             Vec3d position = target.getPos()
                     .add(0.0, target.getHeight() / 2.0, 0.0)
                     .lerp(casterPos, 0.001);
 
-            SpellHelper.ImpactContext targetContext = targeted.context().position(position);
+            SpellExecution.ImpactContext targetContext = targeted.context().position(position);
 
             boolean success = performImpacts(
                     world,
@@ -1297,7 +1296,7 @@ public class SpellDelivery {
                                         }
 
                                         Vec3d impactPosition = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
-                                        SpellHelper.ImpactContext stashContext = new SpellHelper.ImpactContext()
+                                        SpellExecution.ImpactContext stashContext = new SpellExecution.ImpactContext()
                                                 .power(SpellPower.getSpellPower(stashSpell.school, caster))
                                                 .position(impactPosition);
 
@@ -1453,7 +1452,7 @@ public class SpellDelivery {
 
     private static void executePassiveSpell(GuardEntity guard, Entity target, GuardSpellManager.CategorizedSpell passive, Spell passiveSpell) {
         Vec3d impactPos = passiveImpactPosition(guard, target);
-        SpellHelper.ImpactContext passiveContext = new SpellHelper.ImpactContext()
+        SpellExecution.ImpactContext passiveContext = new SpellExecution.ImpactContext()
                 .power(guard.getSpellManager().getAugmentedPower(passive.entry()))
                 .position(impactPos);
 
@@ -1479,7 +1478,7 @@ public class SpellDelivery {
             Entity target,
             GuardSpellManager.CategorizedSpell passive,
             Spell passiveSpell,
-            SpellHelper.ImpactContext passiveContext,
+            SpellExecution.ImpactContext passiveContext,
             Vec3d impactPos
     ) {
         if (passiveSpell.deliver.type == Spell.Delivery.Type.STASH_EFFECT) {
@@ -1495,7 +1494,7 @@ public class SpellDelivery {
             return;
         }
 
-        List<SpellHelper.DeliveryTarget> deliveryTargets = buildPassiveDeliveryTargets(
+        List<SpellExecution.DeliveryTarget> deliveryTargets = buildPassiveDeliveryTargets(
                 guard, target, passive, passiveSpell, passiveContext);
         Vec3d triggerLocation = passiveSpell.target != null
                 && passiveSpell.target.type == Spell.Target.Type.FROM_TRIGGER
@@ -1517,12 +1516,12 @@ public class SpellDelivery {
         }
     }
 
-    private static List<SpellHelper.DeliveryTarget> buildPassiveDeliveryTargets(
+    private static List<SpellExecution.DeliveryTarget> buildPassiveDeliveryTargets(
             GuardEntity guard,
             Entity target,
             GuardSpellManager.CategorizedSpell passive,
             Spell passiveSpell,
-            SpellHelper.ImpactContext passiveContext
+            SpellExecution.ImpactContext passiveContext
     ) {
         if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.AREA) {
             SpellContext areaContext = new SpellContext(
@@ -1534,16 +1533,16 @@ public class SpellDelivery {
                     passiveContext
             );
             return SpellCombatTargeting.resolveSpellTargets(areaContext).stream()
-                    .map(entity -> new SpellHelper.DeliveryTarget(entity, passiveContext))
+                    .map(entity -> new SpellExecution.DeliveryTarget(entity, passiveContext))
                     .toList();
         }
 
         if (passiveSpell.target != null && passiveSpell.target.type == Spell.Target.Type.CASTER) {
-            return List.of(new SpellHelper.DeliveryTarget(guard, passiveContext));
+            return List.of(new SpellExecution.DeliveryTarget(guard, passiveContext));
         }
 
         if (target != null) {
-            return List.of(new SpellHelper.DeliveryTarget(target, passiveContext));
+            return List.of(new SpellExecution.DeliveryTarget(target, passiveContext));
         }
 
         return List.of();
@@ -1554,7 +1553,7 @@ public class SpellDelivery {
             Entity target,
             GuardSpellManager.CategorizedSpell passive,
             Spell passiveSpell,
-            SpellHelper.ImpactContext passiveContext
+            SpellExecution.ImpactContext passiveContext
     ) {
         World world = guard.getWorld();
         Vec3d casterCenter = SpellCombatTargeting.casterCenter(guard);
@@ -1623,7 +1622,7 @@ public class SpellDelivery {
         logCast(context, "MELEE");
 
         List<Spell.Delivery.Melee.Attack> attacks = spell.deliver.melee.attacks;
-        boolean channeled = SpellHelper.isChanneled(spell) && context.impactContext().isChanneled();
+        boolean channeled = SpellParameters.isChanneled(spell) && context.impactContext().isChanneled();
         if (channeled) {
             int index = Math.floorMod(context.impactContext().channelTickIndex(), attacks.size());
             attacks = List.of(attacks.get(index));
@@ -1659,12 +1658,15 @@ public class SpellDelivery {
                                             int primaryDelayTicks) {
         LivingEntity caster = context.caster();
 
-        if (attack.particles != null && attack.particles.length > 0) {
-            if (primaryDelayTicks <= 0) {
-                ParticleHelper.sendBatches(caster, attack.particles);
-            } else {
-                ((net.spell_engine.utils.WorldScheduler) world).schedule(primaryDelayTicks,
-                        () -> ParticleHelper.sendBatches(caster, attack.particles));
+        if (attack.visuals != null) {
+            List<ParticleGroup> attackParticles = SpellParticleHelper.sanitize(attack.visuals.particles);
+            if (!SpellParticleHelper.isEmpty(attackParticles)) {
+                if (primaryDelayTicks <= 0) {
+                    ParticleHelper.sendBatches(caster, attackParticles);
+                } else {
+                    ((net.spell_engine.utils.WorldScheduler) world).schedule(primaryDelayTicks,
+                            () -> ParticleHelper.sendBatches(caster, attackParticles));
+                }
             }
         }
 
@@ -1693,7 +1695,7 @@ public class SpellDelivery {
         }
 
     private static float meleeAttackCharge(SpellContext context) {
-        SpellHelper.ImpactContext impactContext = context.impactContext();
+        SpellExecution.ImpactContext impactContext = context.impactContext();
         float charge = impactContext != null ? impactContext.charge() : 1.0f;
         return MathHelper.clamp(charge, 0.0f, 1.0f);
     }
@@ -1753,7 +1755,7 @@ public class SpellDelivery {
             }
 
             Vec3d impactPos = target.getPos().add(0, target.getHeight() * 0.5, 0);
-            SpellHelper.ImpactContext impactCtx = context.impactContext().position(impactPos);
+            SpellExecution.ImpactContext impactCtx = context.impactContext().position(impactPos);
 
             boolean weaponHit = false;
             boolean spellHit = false;
@@ -1767,7 +1769,7 @@ public class SpellDelivery {
             }
 
             if (hasSpellImpacts) {
-                spellHit = SpellHelper.meleeImpact(caster, List.of(target), context.entry(), impactCtx);
+                spellHit = SpellImpacts.meleeImpact(caster, List.of(target), context.entry(), impactCtx);
             }
 
             if (weaponHit || spellHit) {

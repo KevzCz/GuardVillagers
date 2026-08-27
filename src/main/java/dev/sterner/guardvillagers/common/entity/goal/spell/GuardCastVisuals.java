@@ -12,7 +12,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.api.spell.fx.PlayerAnimation;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellParameters;
 import net.spell_engine.internals.casting.SpellCast;
 import org.jetbrains.annotations.Nullable;
 
@@ -154,7 +154,7 @@ public final class GuardCastVisuals {
         guard.setCastHoldAnimationId(null);
         guard.bumpAnimationSequence();
 
-        SpellCast.Duration details = SpellHelper.getCastTimeDetails(guard, spell);
+        SpellCast.Duration details = SpellParameters.getCastTimeDetails(guard, spell);
         Item weapon = guard.getMainHandStack().getItem();
         SpellCast.Process process = new SpellCast.Process(
                 guard,
@@ -174,7 +174,7 @@ public final class GuardCastVisuals {
         guard.setCastAnimationSpeed(resolveCastPlaybackSpeed(spell, details, castAnimId));
         logAnimationPhase(guard, "CAST", castAnimId);
 
-        if (SpellHelper.isChanneled(spell)) {
+        if (SpellParameters.isChanneled(spell)) {
             beginChannel(guard, spell);
         } else if (hasReleaseAnimation(spell) && spell.active != null && spell.active.cast != null) {
             guard.setChannelCastVisuals(
@@ -203,11 +203,11 @@ public final class GuardCastVisuals {
     }
 
     public static void beginChannel(GuardEntity guard, Spell spell) {
-        if (!SpellHelper.isChanneled(spell) || spell.active == null || spell.active.cast == null) {
+        if (!SpellParameters.isChanneled(spell) || spell.active == null || spell.active.cast == null) {
             return;
         }
         Spell.Active.Cast cast = spell.active.cast;
-        SpellCast.Duration details = SpellHelper.getCastTimeDetails(guard, spell);
+        SpellCast.Duration details = SpellParameters.getCastTimeDetails(guard, spell);
         float processSpeed = guard.getSpellCastProcess() != null
                 ? guard.getSpellCastProcess().speed()
                 : details.speed();
@@ -469,7 +469,7 @@ public final class GuardCastVisuals {
                 ? guard.getSpellCastProcess().speed()
                 : guard.getCastAnimationSpeed();
         if (speed <= 0) {
-            speed = SpellHelper.getCastTimeDetails(guard, spell).speed();
+            speed = SpellParameters.getCastTimeDetails(guard, spell).speed();
         }
         if (animation != null && animation.speed > 0) {
             speed *= animation.speed;
@@ -485,11 +485,11 @@ public final class GuardCastVisuals {
         if (isInstantReleaseSpell(spell)) {
             return 0;
         }
-        if (SpellHelper.isChanneled(spell)) {
+        if (SpellParameters.isChanneled(spell)) {
             return 0;
         }
         if (spell.active != null && spell.active.cast != null && spell.active.cast.duration > 0) {
-            return Math.max(1, SpellHelper.getCastTimeDetails(guard, spell).length());
+            return Math.max(1, SpellParameters.getCastTimeDetails(guard, spell).length());
         }
         if (spell.deliver != null && spell.deliver.type == Spell.Delivery.Type.MELEE) {
             return MELEE_TELEGRAPH_TICKS;
@@ -499,14 +499,14 @@ public final class GuardCastVisuals {
 
     public static int channelDurationTicks(GuardEntity guard, Spell spell) {
         if (spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0) {
-            return Math.max(1, SpellHelper.getCastTimeDetails(guard, spell).length());
+            return Math.max(1, SpellParameters.getCastTimeDetails(guard, spell).length());
         }
         return 0;
     }
 
     public static int channelFireIntervalTicks(GuardEntity guard, Spell spell) {
         if (spell.active != null && spell.active.cast != null && spell.active.cast.channelTicks() > 0) {
-            int totalTicks = Math.max(1, SpellHelper.getCastTimeDetails(guard, spell).length());
+            int totalTicks = Math.max(1, SpellParameters.getCastTimeDetails(guard, spell).length());
             int channelTicks = spell.active.cast.channelTicks();
             return Math.max(1, totalTicks / channelTicks);
         }

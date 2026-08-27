@@ -3,7 +3,7 @@ package dev.sterner.guardvillagers.common.entity;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.api.spell.registry.SpellRegistry;
-import net.spell_engine.internals.SpellCooldownManager;
+import net.spell_engine.internals.cost.SpellCooldownManager;
 import net.spell_engine.utils.PatternMatching;
 
 import java.util.List;

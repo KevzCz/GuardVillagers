@@ -10,7 +10,6 @@ import net.minecraft.util.Identifier;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.api.spell.registry.SpellRegistry;
 import net.spell_engine.fx.ParticleHelper;
-import net.spell_engine.internals.SpellHelper;
 import net.spell_engine.internals.casting.SpellCast;
 import org.jetbrains.annotations.Nullable;
 

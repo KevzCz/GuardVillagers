@@ -19,7 +19,7 @@ public class SpellProjectileMixin {
             method = "onEntityHit",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/spell_engine/internals/SpellHelper;projectileImpact(Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellHelper$ImpactContext;)Z",
+                    target = "Lnet/spell_engine/internals/impact/SpellImpacts;projectileImpact(Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellExecution$ImpactContext;)Z",
                     shift = At.Shift.AFTER
             )
     )

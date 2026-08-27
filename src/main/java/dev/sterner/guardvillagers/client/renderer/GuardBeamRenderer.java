@@ -11,11 +11,11 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.RotationAxis;
 import net.minecraft.util.math.Vec3d;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.client.beam.BeamEmitterEntity;
+import net.spell_engine.client.render.BeamEmitterEntity;
 import net.spell_engine.client.compatibility.ShaderCompatibility;
 import net.spell_engine.client.render.BeamRenderer;
 import net.spell_engine.client.util.Color;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.delivery.LaunchGeometry;
 import net.spell_engine.internals.delivery.Beam;
 import net.spell_engine.utils.TargetHelper;
 
@@ -62,8 +62,8 @@ public class GuardBeamRenderer {
                                               VertexConsumerProvider.Immediate vertexConsumers,
                                               GuardEntity guard,
                                               float delta) {
-        float launchHeight = SpellHelper.launchHeight(guard);
-        Vec3d offset = new Vec3d(0.0, launchHeight, SpellHelper.launchPointOffsetDefault);
+        float launchHeight = LaunchGeometry.launchHeight(guard);
+        Vec3d offset = new Vec3d(0.0, launchHeight, LaunchGeometry.launchPointOffsetDefault);
 
         matrices.push();
         Vec3d pos = new Vec3d(guard.prevX, guard.prevY, guard.prevZ).lerp(guard.getPos(), delta);

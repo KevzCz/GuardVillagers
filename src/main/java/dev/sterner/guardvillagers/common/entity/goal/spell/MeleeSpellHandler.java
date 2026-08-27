@@ -14,7 +14,11 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.Vec3d;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.entity.SpellProjectile;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellExecution;
+import net.spell_engine.internals.impact.SpellImpacts;
+import net.spell_engine.internals.delivery.CloudPlacer;
+import net.spell_engine.internals.delivery.ProjectileLauncher;
+import net.spell_engine.internals.target.SpellIntents;
 import net.spell_power.api.SpellPower;
 
 import java.util.List;
@@ -181,7 +185,7 @@ public class MeleeSpellHandler {
             }
         }
 
-        SpellHelper.ImpactContext context = createContext(spell);
+        SpellExecution.ImpactContext context = createContext(spell);
 
         
         if (spell.deliver != null) {
@@ -240,11 +244,11 @@ public class MeleeSpellHandler {
     
     
 
-    private boolean castPassiveDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castPassiveDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context, LivingEntity primaryTarget) {
         boolean anySuccess = false;
         if (spell.target == null || spell.target.type == Spell.Target.Type.FROM_TRIGGER) {
             
-            boolean success = SpellHelper.performImpacts(
+            boolean success = SpellImpacts.performImpacts(
                     guard.getWorld(),
                     guard,
                     primaryTarget,
@@ -281,7 +285,7 @@ public class MeleeSpellHandler {
             }
             
             for (LivingEntity target : targets) {
-                boolean success = SpellHelper.performImpacts(
+                boolean success = SpellImpacts.performImpacts(
                         guard.getWorld(),
                         guard,
                         target,
@@ -309,7 +313,7 @@ public class MeleeSpellHandler {
     
     
 
-    private boolean castMeleeMeteor(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castMeleeMeteor(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context, LivingEntity primaryTarget) {
         int count = 1;
         if (spell.deliver != null && spell.deliver.meteor != null
                 && spell.deliver.meteor.launch_properties != null) {
@@ -317,7 +321,7 @@ public class MeleeSpellHandler {
         }
 
         Vec3d targetPos = primaryTarget.getPos();
-        boolean success = SpellHelper.fallProjectile(
+        boolean success = ProjectileLauncher.fallProjectile(
                 guard.getWorld(),
                 guard,
                 primaryTarget,
@@ -337,12 +341,12 @@ public class MeleeSpellHandler {
         return success;
     }
 
-    private boolean castMeleeCloud(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castMeleeCloud(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context, LivingEntity primaryTarget) {
         Vec3d targetPos = primaryTarget.getPos();
         
         boolean success = false;
         try {
-            SpellHelper.placeCloud(
+            CloudPlacer.placeCloud(
                     guard.getWorld(),
                     guard,
                     primaryTarget,
@@ -369,9 +373,9 @@ public class MeleeSpellHandler {
         return success;
     }
 
-    private boolean castMeleeCustom(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castMeleeCustom(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context, LivingEntity primaryTarget) {
         Vec3d targetLocation = primaryTarget.getPos().add(0.0, primaryTarget.getHeight() / 2.0, 0.0);
-        SpellHelper.ImpactContext targetContext = context.position(targetLocation);
+        SpellExecution.ImpactContext targetContext = context.position(targetLocation);
 
         if (!guard.getWorld().isClient()) {
             GuardDebugManager.broadcast(guard,
@@ -384,7 +388,7 @@ public class MeleeSpellHandler {
                 guard.getWorld(),
                 spellEntry,
                 guard,
-                List.of(new SpellHelper.DeliveryTarget(primaryTarget, targetContext)),
+                List.of(new SpellExecution.DeliveryTarget(primaryTarget, targetContext)),
                 targetContext,
                 targetLocation,
                 spell
@@ -411,7 +415,7 @@ public class MeleeSpellHandler {
         return success;
     }
 
-    private boolean castMeleeDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context) {
+    private boolean castMeleeDirect(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context) {
         double radius = spell.range > 0 ? spell.range : 5.0;
         List<LivingEntity> targets = findConeTargets(radius);
 
@@ -423,7 +427,7 @@ public class MeleeSpellHandler {
 
         boolean anySuccess = false;
         for (LivingEntity target : targets) {
-            boolean success = SpellHelper.performImpacts(
+            boolean success = SpellImpacts.performImpacts(
                     guard.getWorld(),
                     guard,
                     target,
@@ -469,7 +473,7 @@ public class MeleeSpellHandler {
 
         logMeleeCast(categorizedSpell.spellId(), spell);
 
-        SpellHelper.ImpactContext context = createContext(spell);
+        SpellExecution.ImpactContext context = createContext(spell);
 
         if (spell.deliver != null) {
             return switch (spell.deliver.type) {
@@ -482,7 +486,7 @@ public class MeleeSpellHandler {
         return castMeleeDirect(spell, categorizedSpell.entry(), context);
     }
 
-    private boolean castMeleeProjectiles(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context, LivingEntity primaryTarget) {
+    private boolean castMeleeProjectiles(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context, LivingEntity primaryTarget) {
         double range = spell.range > 0 ? spell.range : DEFAULT_MELEE_RANGE;
         int cap = (spell.target != null && spell.target.cap > 0) ? spell.target.cap : DEFAULT_TARGET_CAP;
 
@@ -532,7 +536,7 @@ public class MeleeSpellHandler {
                 .toList();
     }
 
-    private void spawnMeleeProjectile(Spell spell, RegistryEntry<Spell> spellEntry, SpellHelper.ImpactContext context,
+    private void spawnMeleeProjectile(Spell spell, RegistryEntry<Spell> spellEntry, SpellExecution.ImpactContext context,
                                       LivingEntity target, Vec3d spawnPos, double range) {
         Vec3d direction = target.getEyePos().subtract(spawnPos).normalize().multiply(1.5);
 
@@ -557,11 +561,11 @@ public class MeleeSpellHandler {
         guard.getWorld().spawnEntity(projectile);
     }
 
-    private SpellHelper.ImpactContext createContext(Spell spell) {
-        return new SpellHelper.ImpactContext()
+    private SpellExecution.ImpactContext createContext(Spell spell) {
+        return new SpellExecution.ImpactContext()
                 .power(SpellPower.getSpellPower(spell.school, guard))
                 .position(guard.getEyePos())
-                .target(SpellHelper.focusMode(spell));
+                .target(SpellIntents.focusMode(spell));
     }
 
     private void playLaunchSound(Spell spell) {

@@ -10,7 +10,9 @@ import net.minecraft.util.Formatting;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.math.Vec3d;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellExecution;
+import net.spell_engine.internals.impact.SpellImpacts;
+import net.spell_engine.internals.delivery.CloudPlacer;
 import net.spell_power.api.SpellPower;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -82,7 +84,7 @@ public class PersistentProjectileEntityMixin {
         
         Vec3d impactPosition = target.getPos().add(0.0, target.getHeight() / 2.0, 0.0);
         
-        SpellHelper.ImpactContext context = new SpellHelper.ImpactContext()
+        SpellExecution.ImpactContext context = new SpellExecution.ImpactContext()
                 .power(SpellPower.getSpellPower(spell.school, guard))
                 .position(impactPosition);
 
@@ -96,7 +98,7 @@ public class PersistentProjectileEntityMixin {
 
         if (spell.deliver != null && spell.deliver.type == Spell.Delivery.Type.CLOUD) {
             try {
-                SpellHelper.placeCloud(
+                CloudPlacer.placeCloud(
                         guard.getWorld(),
                         guard,
                         target,
@@ -119,7 +121,7 @@ public class PersistentProjectileEntityMixin {
 
             boolean includeCaster = spell.target.area != null && spell.target.area.include_caster;
             if (includeCaster) {
-                SpellHelper.performImpacts(
+                SpellImpacts.performImpacts(
                         guard.getWorld(),
                         guard,
                         guard,
@@ -131,7 +133,7 @@ public class PersistentProjectileEntityMixin {
             }
 
             for (LivingEntity areaTarget : areaTargets) {
-                SpellHelper.performImpacts(
+                SpellImpacts.performImpacts(
                         guard.getWorld(),
                         guard,
                         areaTarget,
@@ -142,7 +144,7 @@ public class PersistentProjectileEntityMixin {
                 );
             }
         } else {
-            SpellHelper.performImpacts(
+            SpellImpacts.performImpacts(
                     guard.getWorld(),
                     guard,
                     effectTarget,

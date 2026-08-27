@@ -3,7 +3,7 @@ package dev.sterner.guardvillagers.common.entity.goal.spell;
 import dev.sterner.guardvillagers.common.animation.GuardAnimationDurations;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellParameters;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
@@ -13,7 +13,7 @@ public final class GuardSpellTimings {
     private GuardSpellTimings() {}
 
     public static int channeledMeleeFollowThroughTicks(GuardEntity guard, Spell spell) {
-        if (!SpellHelper.isChanneled(spell)
+        if (!SpellParameters.isChanneled(spell)
                 || spell.deliver == null
                 || spell.deliver.type != Spell.Delivery.Type.MELEE
                 || spell.deliver.melee == null
@@ -31,7 +31,7 @@ public final class GuardSpellTimings {
                 || spell.deliver.melee == null || spell.deliver.melee.attacks == null) {
             return 0;
         }
-        if (SpellHelper.isChanneled(spell)) {
+        if (SpellParameters.isChanneled(spell)) {
             return 0;
         }
 

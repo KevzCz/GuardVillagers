@@ -15,9 +15,9 @@ import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Hand;
 import net.minecraft.world.World;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.SpellHelper;
-import net.spell_engine.internals.arrow.ArrowHelper;
-import net.spell_engine.internals.arrow.ArrowShootContext;
+import net.spell_engine.internals.SpellExecution;
+import net.spell_engine.internals.delivery.arrow.ArrowHelper;
+import net.spell_engine.internals.delivery.arrow.ArrowShootContext;
 import net.spell_engine.mixin.item.RangedWeaponAccessor;
 import net.spell_engine.utils.WorldScheduler;
 
@@ -61,7 +61,7 @@ public final class GuardSpellArrowDelivery {
         shootContext.firedBySpell = true;
         shootContext.activeSpells.add(context.entry());
 
-        if (caster instanceof net.spell_engine.internals.casting.SpellCasterEntity spellCaster) {
+        if (caster instanceof GuardEntity spellCaster) {
             spellCaster.setArrowShootContext(shootContext);
             try {
                 ArrowHelper.shootArrow(
@@ -164,7 +164,7 @@ public final class GuardSpellArrowDelivery {
         }
 
         RegistryEntry<Spell> entry = context.entry();
-        SpellHelper.ImpactContext impactContext = context.impactContext();
+        SpellExecution.ImpactContext impactContext = context.impactContext();
 
         for (int i = 0; i < launch.extra_launch_count; i++) {
             int delay = (i + 1) * Math.max(1, launch.extra_launch_delay);

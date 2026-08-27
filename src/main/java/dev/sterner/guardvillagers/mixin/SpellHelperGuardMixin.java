@@ -6,16 +6,17 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.world.World;
 import net.spell_engine.api.spell.Spell;
-import net.spell_engine.internals.SpellHelper;
+import net.spell_engine.internals.SpellExecution;
+import net.spell_engine.internals.delivery.ProjectileLauncher;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 
-@Mixin(SpellHelper.class)
+@Mixin(ProjectileLauncher.class)
 public class SpellHelperGuardMixin {
 
     @Redirect(
-            method = "shootProjectile(Lnet/minecraft/world/World;Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellHelper$ImpactContext;I)V",
+            method = "shootProjectile(Lnet/minecraft/world/World;Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellExecution$ImpactContext;I)V",
             at = @At(
                     value = "FIELD",
                     target = "Lnet/spell_engine/api/spell/Spell$Delivery$ShootProjectile;direct_towards_target:Z",
@@ -28,7 +29,7 @@ public class SpellHelperGuardMixin {
             LivingEntity caster,
             Entity target,
             RegistryEntry<Spell> spellEntry,
-            SpellHelper.ImpactContext context,
+            SpellExecution.ImpactContext context,
             int channelOffset
     ) {
         if (caster instanceof GuardEntity && target != null && target.isAlive()) {
@@ -38,7 +39,7 @@ public class SpellHelperGuardMixin {
     }
 
     @Redirect(
-            method = "shootProjectile(Lnet/minecraft/world/World;Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellHelper$ImpactContext;I)V",
+            method = "shootProjectile(Lnet/minecraft/world/World;Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellExecution$ImpactContext;I)V",
             at = @At(
                     value = "FIELD",
                     target = "Lnet/spell_engine/api/spell/Spell$Delivery$ShootProjectile;inherit_shooter_yaw:Z",
@@ -51,7 +52,7 @@ public class SpellHelperGuardMixin {
             LivingEntity caster,
             Entity target,
             RegistryEntry<Spell> spellEntry,
-            SpellHelper.ImpactContext context,
+            SpellExecution.ImpactContext context,
             int channelOffset
     ) {
         if (caster instanceof GuardEntity) {
@@ -61,7 +62,7 @@ public class SpellHelperGuardMixin {
     }
 
     @Redirect(
-            method = "shootProjectile(Lnet/minecraft/world/World;Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellHelper$ImpactContext;I)V",
+            method = "shootProjectile(Lnet/minecraft/world/World;Lnet/minecraft/entity/LivingEntity;Lnet/minecraft/entity/Entity;Lnet/minecraft/registry/entry/RegistryEntry;Lnet/spell_engine/internals/SpellExecution$ImpactContext;I)V",
             at = @At(
                     value = "FIELD",
                     target = "Lnet/spell_engine/api/spell/Spell$Delivery$ShootProjectile;inherit_shooter_pitch:Z",
@@ -74,7 +75,7 @@ public class SpellHelperGuardMixin {
             LivingEntity caster,
             Entity target,
             RegistryEntry<Spell> spellEntry,
-            SpellHelper.ImpactContext context,
+            SpellExecution.ImpactContext context,
             int channelOffset
     ) {
         if (caster instanceof GuardEntity) {

@@ -30,7 +30,7 @@
     "minecraft": "~1.21",
     "java": ">=21",
     "fabric-api": "*",
-    "spell_engine": ">=1.9.13",
+    "spell_engine": ">=1.10.0",
     "wizards" : "*"
   },
   "suggests": {

@@ -1,0 +1,39 @@
+{
+  "spawn": {
+    "weight": 1,
+    "natural": false
+  },
+  "display": {
+    "name": "&eHired Crossbowman &7[Contract]",
+    "name_visible": true,
+    "greetings": [
+      "Bolts are counted, string is waxed. Lead on.",
+      "Keep them off me and I'll keep them off you."
+    ],
+    "variant": 0
+  },
+  "behavior": {
+    "hireable": false,
+    "patrolling": false,
+    "following": true,
+    "immutable_equipment": true,
+    "attack_players": false
+  },
+  "loot": {
+    "use_tables": false,
+    "drop_chance": 0
+  },
+  "equipment": {
+    "head": { "id": "minecraft:leather_helmet", "count": 1 },
+    "chest": { "id": "minecraft:chainmail_chestplate", "count": 1 },
+    "legs": { "id": "minecraft:leather_leggings", "count": 1 },
+    "feet": { "id": "minecraft:leather_boots", "count": 1 },
+    "mainhand": { "id": "minecraft:crossbow", "count": 1 }
+  },
+  "attributes": {
+    "minecraft:generic.max_health": 30
+  },
+  "config_overrides": {
+    "healthModifier": 30
+  }
+}

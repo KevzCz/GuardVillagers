@@ -1,0 +1,40 @@
+{
+  "spawn": {
+    "weight": 1,
+    "natural": false
+  },
+  "display": {
+    "name": "&6Sellsword &7[Contract]",
+    "name_visible": true,
+    "greetings": [
+      "Paid in full. Point me at the problem.",
+      "The ink's dry. Let's get to work."
+    ],
+    "variant": 0
+  },
+  "behavior": {
+    "hireable": false,
+    "patrolling": false,
+    "following": true,
+    "immutable_equipment": true,
+    "attack_players": false
+  },
+  "loot": {
+    "use_tables": false,
+    "drop_chance": 0
+  },
+  "equipment": {
+    "head": { "id": "minecraft:chainmail_helmet", "count": 1 },
+    "chest": { "id": "minecraft:iron_chestplate", "count": 1 },
+    "legs": { "id": "minecraft:chainmail_leggings", "count": 1 },
+    "feet": { "id": "minecraft:iron_boots", "count": 1 },
+    "mainhand": { "id": "minecraft:iron_sword", "count": 1 },
+    "offhand": { "id": "minecraft:shield", "count": 1 }
+  },
+  "attributes": {
+    "minecraft:generic.max_health": 40
+  },
+  "config_overrides": {
+    "healthModifier": 40
+  }
+}

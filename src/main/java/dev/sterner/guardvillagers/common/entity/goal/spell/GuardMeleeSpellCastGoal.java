@@ -506,11 +506,14 @@ public class GuardMeleeSpellCastGoal extends BaseSpellGoal {
 
     private Identifier getNextCastableSpell() {
         var manager = guard.getSpellManager();
+        LivingEntity target = guard.getTarget();
+        boolean hasTarget = target != null && target.isAlive();
 
         Optional<GuardSpellManager.CategorizedSpell> meleeSpell =
                 manager.getBestSpell(GuardSpellManager.SpellCategory.MELEE,
                         s -> !isSpellOnCooldown(s.spellId())
-                                && isArchetypeCompatibleWithMelee(s));
+                                && isArchetypeCompatibleWithMelee(s)
+                                && (!hasTarget || isTargetInCastRange(target, s.entry())));
 
         if (meleeSpell.isPresent()) {
             return meleeSpell.get().spellId();

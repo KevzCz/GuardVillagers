@@ -1,0 +1,14 @@
+{
+  "pages": [
+    {
+      "translate": "guardvillagers.dialogue.hired"
+    }
+  ],
+  "choices": [
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.hired.go"
+      }
+    }
+  ]
+}

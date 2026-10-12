@@ -93,4 +93,13 @@ public class GuardVillagersConfig extends MidnightConfig {
 
     @Entry
     public static float hiredOwnerHealThreshold = 0.75f;
+
+    @Entry
+    public static boolean contractsEnabled = true;
+    @Entry
+    public static boolean contractLootEnabled = true;
+    @Entry
+    public static int maxSummonedGuards = 3;
+    @Entry
+    public static int defaultContractTermDays = 3;
 }

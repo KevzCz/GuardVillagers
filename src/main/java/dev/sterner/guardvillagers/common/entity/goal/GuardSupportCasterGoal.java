@@ -5,7 +5,6 @@ import dev.sterner.guardvillagers.common.ai.GuardCombatRole;
 import dev.sterner.guardvillagers.common.ai.GuardWeaponArchetype;
 import dev.sterner.guardvillagers.common.ai.HolyZoneHelper;
 import dev.sterner.guardvillagers.common.ai.SpellbladeCombatHelper;
-import dev.sterner.guardvillagers.common.entity.GuardItemTags;
 import dev.sterner.guardvillagers.common.ai.SupportAreaOptimizer;
 import dev.sterner.guardvillagers.common.ai.SupportBacklineHelper;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
@@ -41,6 +40,7 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
     private static final float ALLY_SCAN = 16.0F;
     private static final float CLUSTER_SCAN = 12.0F;
     private static final float SINGLE_HEAL_RANGE = 6.5F;
+    private static final float FRONTLINE_HEAL_CAP = 0.5F;
     private static final UniformIntProvider PATH_DELAY = TimeHelper.betweenSeconds(1, 2);
 
     private static final Identifier ID_CIRCLE = Identifier.of("paladins", "circle_of_healing");
@@ -90,20 +90,11 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         if (guard.spellCastGraceTicks > 0) {
             return false;
         }
-        if (guard.getSpellManager().hasCastablePhysicalMeleeSpell()) {
-            return false;
-        }
-        if (guard.getSpellManager().shouldUseMeleeWeaponCasting()) {
-            return false;
-        }
-        if (GuardWeaponArchetype.resolve(guard.getMainHandStack()) == GuardWeaponArchetype.Role.MELEE) {
-            return false;
-        }
-        if (GuardItemTags.isSpellbladeWeapon(guard.getMainHandStack())) {
-            return false;
-        }
         if (SpellbladeCombatHelper.isActive(guard)) {
             return false;
+        }
+        if (isFrontlineCaster()) {
+            return pendingCast != null || hasFrontlineSupportWork();
         }
         if (!GuardCombatRole.isDedicatedSupport(guard) && shouldDeferToOffensiveCaster()) {
             return false;
@@ -119,17 +110,11 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         if (guard.isCastingMeleeSpell()) {
             return false;
         }
-        if (guard.getSpellManager().shouldUseMeleeWeaponCasting()) {
-            return false;
-        }
-        if (GuardWeaponArchetype.resolve(guard.getMainHandStack()) == GuardWeaponArchetype.Role.MELEE) {
-            return false;
-        }
-        if (GuardItemTags.isSpellbladeWeapon(guard.getMainHandStack())) {
-            return false;
-        }
         if (SpellbladeCombatHelper.isActive(guard)) {
             return false;
+        }
+        if (isFrontlineCaster()) {
+            return pendingCast != null || positioningTicks > 0 || hasFrontlineSupportWork();
         }
         if (!GuardCombatRole.isDedicatedSupport(guard) && shouldDeferToOffensiveCaster()) {
             return false;
@@ -170,9 +155,10 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         }
         tickCooldowns();
 
+        boolean frontline = isFrontlineCaster();
         boolean activeSupport = pendingCast != null
                 || positioningTicks > 0
-                || hasSupportWork(peacefulMode());
+                || (frontline ? hasFrontlineSupportWork() : hasSupportWork(peacefulMode()));
         updateControls(activeSupport);
 
         if (handlePendingCast(enemy)) {
@@ -181,6 +167,11 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
 
         if (positioningTicks > 0 && positioningTarget != null) {
             tickPositioning(enemy);
+            return;
+        }
+
+        if (frontline) {
+            tryFrontlineSupport(inCombat());
             return;
         }
 
@@ -212,6 +203,35 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
             this.setControls(EnumSet.of(Control.MOVE, Control.LOOK));
         } else {
             this.setControls(EnumSet.noneOf(Control.class));
+        }
+    }
+
+    private boolean isFrontlineCaster() {
+        GuardWeaponArchetype.Role role = GuardWeaponArchetype.resolve(guard.getMainHandStack());
+        return role == GuardWeaponArchetype.Role.MELEE
+                || role == GuardWeaponArchetype.Role.SPELLBLADE
+                || guard.getSpellManager().shouldUseMeleeWeaponCasting();
+    }
+
+    private boolean hasFrontlineSupportWork() {
+        if (guard.getSpellManager().hasHealingSpells()
+                && (isOwnerHurtEnoughToHeal() || !collectHurtAllies(ALLY_SCAN, FRONTLINE_HEAL_CAP).isEmpty())) {
+            return true;
+        }
+        if (!inCombat()) {
+            return false;
+        }
+        return guard.getSpellManager().getBestCastableSupportBuffSpell()
+                .filter(spell -> !isSpellOnCooldown(spell.spellId())
+                        && !GuardSpellEffectHelper.alreadyAffected(guard, spell.entry().value()))
+                .isPresent();
+    }
+
+    private void tryFrontlineSupport(boolean combat) {
+        if (trySingleHeal(FRONTLINE_HEAL_CAP, ALLY_SCAN, true)) return;
+        if (tryAreaHeal(CLUSTER_SCAN, FRONTLINE_HEAL_CAP, true)) return;
+        if (combat) {
+            tryAreaBuff(CLUSTER_SCAN, true);
         }
     }
 
@@ -380,7 +400,7 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
     private boolean trySelfOrAllyBuff(GuardSpellManager.CategorizedSpell spell, boolean anchor) {
         Spell data = spell.entry().value();
         LivingEntity target = resolveBuffTarget(data);
-        if (target == null || GuardSpellEffectHelper.alreadyAffected(target, data)) {
+        if (target == null || (target == guard && peacefulMode()) || GuardSpellEffectHelper.alreadyAffected(target, data)) {
             return false;
         }
         beginCast(spell.spellId(), spell.entry(), CastIntent.AREA_BUFF, anchor, target, () ->
@@ -474,7 +494,11 @@ public class GuardSupportCasterGoal extends BaseHealerGoal {
         boolean anchor = pendingIntent == CastIntent.BARRIER
                 || SupportBacklineHelper.shouldAnchorForRetreatingAllies(guard);
 
-        if (enemy != null && enemy.isAlive()) {
+        if (isFrontlineCaster()) {
+            if (enemy != null && enemy.isAlive()) {
+                guard.getLookControl().lookAt(enemy, 30.0F, 30.0F);
+            }
+        } else if (enemy != null && enemy.isAlive()) {
             SupportBacklineHelper.SpellMovementProfile profile = cachedSpellEntry != null
                     ? SupportBacklineHelper.SpellMovementProfile.from(cachedSpellEntry.value())
                     : null;

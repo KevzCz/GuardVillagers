@@ -19,6 +19,10 @@ public final class GuardTextUtils {
         return Text.literal(raw);
     }
 
+    public static Text translatableOrColored(String raw) {
+        return Text.translatableWithFallback(raw, raw.replace('&', '\u00A7'));
+    }
+
     public static MutableText coloredLiteral(String raw) {
         Text parsed = parseColorName(raw);
         return parsed != null ? parsed.copy() : Text.literal(raw);

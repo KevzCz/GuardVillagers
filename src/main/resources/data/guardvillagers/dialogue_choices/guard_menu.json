@@ -1,0 +1,144 @@
+{
+  "into": "guardvillagers:guard_menu",
+  "choices": [
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.hire"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:can_hire"
+        }
+      ],
+      "actions": [
+        {
+          "type": "rpg_dialogue:open_dialogue",
+          "dialogue": "guardvillagers:guard/hire"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.talk"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:has_own_dialogue"
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:open_own_dialogue"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.follow"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:can_order",
+          "order": "follow"
+        },
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "guardvillagers:has_order",
+            "order": "follow"
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:order",
+          "order": "follow"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.hold"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:can_order",
+          "order": "hold"
+        },
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "guardvillagers:has_order",
+            "order": "hold"
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:order",
+          "order": "hold"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.release"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:can_order",
+          "order": "release"
+        },
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "guardvillagers:has_order",
+            "order": "release"
+          }
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:order",
+          "order": "release"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.gear"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:can_manage"
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:open_inventory"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.dismiss"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:is_owner"
+        }
+      ],
+      "actions": [
+        {
+          "type": "rpg_dialogue:open_dialogue",
+          "dialogue": "guardvillagers:guard/dismiss"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.farewell"
+      }
+    }
+  ]
+}

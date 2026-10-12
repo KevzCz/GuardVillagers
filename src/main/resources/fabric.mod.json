@@ -20,6 +20,9 @@
     ],
     "client": [
       "dev.sterner.guardvillagers.GuardVillagersClient"
+    ],
+    "jade": [
+      "dev.sterner.guardvillagers.compat.jade.GuardJadePlugin"
     ]
   },
   "mixins": [
@@ -36,6 +39,9 @@
   "suggests": {
     "elemental_wizards_rpg": "*",
     "archers_expansion": "*",
-    "spellbladenext": "*"
+    "spellbladenext": "*",
+    "jade": "*",
+    "rpg_dialogue": "*",
+    "rpg_villagers": "*"
   }
 }

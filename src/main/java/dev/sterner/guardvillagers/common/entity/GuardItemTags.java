@@ -1,11 +1,21 @@
 package dev.sterner.guardvillagers.common.entity;
 
+import net.minecraft.item.AxeItem;
+import net.minecraft.item.BowItem;
+import net.minecraft.item.CrossbowItem;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.MaceItem;
+import net.minecraft.item.MiningToolItem;
+import net.minecraft.item.SwordItem;
+import net.minecraft.item.TridentItem;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryKeys;
+import net.minecraft.registry.tag.ItemTags;
 import net.minecraft.registry.tag.TagKey;
 import net.minecraft.util.Identifier;
+import net.spell_engine.api.item.weapon.StaffItem;
+import org.jetbrains.annotations.Nullable;
 
 public final class GuardItemTags {
 
@@ -27,6 +37,7 @@ public final class GuardItemTags {
     public static final TagKey<Item> RPG_HEALING_STAFF = tag("rpg_series", "weapon_type/healing_staff");
     public static final TagKey<Item> RPG_HEALING_WAND = tag("rpg_series", "weapon_type/healing_wand");
     public static final TagKey<Item> RPG_SPELL_BLADE = tag("rpg_series", "weapon_type/spell_blade");
+    public static final TagKey<Item> RPG_SWORD = tag("rpg_series", "weapon_type/sword");
     public static final TagKey<Item> RPG_SPELL_SCYTHE = tag("rpg_series", "weapon_type/spell_scythe");
     public static final TagKey<Item> RPG_LONG_BOW = tag("rpg_series", "weapon_type/long_bow");
     public static final TagKey<Item> RPG_SHORT_BOW = tag("rpg_series", "weapon_type/short_bow");
@@ -40,6 +51,7 @@ public final class GuardItemTags {
     public static final TagKey<Item> ELEMENTAL_STAVES = tag("elemental_wizards_rpg", "elemental_staves");
     public static final TagKey<Item> PALADINS_STAVES = tag("paladins", "staves");
     public static final TagKey<Item> FORCEMASTER_FIST_WEAPONS = tag("forcemaster_rpg", "fist_weapons");
+    public static final TagKey<Item> CONVENTION_MELEE_WEAPONS = tag("c", "tools/melee_weapon");
 
     private GuardItemTags() {}
 
@@ -84,7 +96,7 @@ public final class GuardItemTags {
         if (stack.isEmpty() || isSpellbladeWeapon(stack) || isMeleeDamageWeapon(stack) || isRangedDamageWeapon(stack)) {
             return false;
         }
-        if (stack.getItem() instanceof net.spell_engine.api.item.weapon.StaffItem) {
+        if (stack.getItem() instanceof StaffItem) {
             return true;
         }
         if (isBardInstrument(stack) || isHealingWeapon(stack)) {
@@ -120,15 +132,46 @@ public final class GuardItemTags {
             return false;
         }
         return stack.isIn(RPG_MELEE_DAMAGE_WEAPON)
+                || stack.isIn(RPG_SWORD)
                 || nameContains(stack, "claymore", "glaive", "mace", "hammer", "dagger", "sickle", "spear",
-                "double_axe", "sword", "longsword", "rapier", "katana", "scimitar", "cutlass");
+                "double_axe", "sword", "longsword", "rapier", "katana", "scimitar", "cutlass")
+                || (!hasMagicWeaponTag(stack) && isVanillaMeleeWeapon(stack));
+    }
+
+    private static boolean isVanillaMeleeWeapon(ItemStack stack) {
+        Item item = stack.getItem();
+        return item instanceof SwordItem
+                || item instanceof AxeItem
+                || item instanceof MaceItem
+                || item instanceof TridentItem
+                || item instanceof MiningToolItem
+                || stack.isIn(ItemTags.SWORDS)
+                || stack.isIn(ItemTags.AXES)
+                || stack.isIn(CONVENTION_MELEE_WEAPONS);
+    }
+
+    private static boolean hasMagicWeaponTag(ItemStack stack) {
+        return stack.getItem() instanceof StaffItem
+                || stack.isIn(RPG_MAGIC_DAMAGE_WEAPON)
+                || stack.isIn(RPG_HEALING_WEAPON)
+                || stack.isIn(RPG_DAMAGE_STAFF)
+                || stack.isIn(RPG_DAMAGE_WAND)
+                || stack.isIn(RPG_HEALING_STAFF)
+                || stack.isIn(RPG_HEALING_WAND)
+                || stack.isIn(WIZARDS_WANDS)
+                || stack.isIn(WIZARDS_STAVES)
+                || stack.isIn(ELEMENTAL_WANDS)
+                || stack.isIn(ELEMENTAL_STAVES)
+                || stack.isIn(PALADINS_STAVES)
+                || stack.isIn(BARDS_LUTES)
+                || stack.isIn(BARDS_LYRES);
     }
 
     public static boolean isCrossbowLikeWeapon(ItemStack stack) {
         if (stack.isEmpty()) {
             return false;
         }
-        if (stack.getItem() instanceof net.minecraft.item.CrossbowItem) {
+        if (stack.getItem() instanceof CrossbowItem) {
             return true;
         }
         return stack.isIn(BARDS_HARP_CROSSBOWS)
@@ -144,7 +187,7 @@ public final class GuardItemTags {
         if (isCrossbowLikeWeapon(stack)) {
             return false;
         }
-        return stack.getItem() instanceof net.minecraft.item.BowItem
+        return stack.getItem() instanceof BowItem
                 || stack.isIn(RPG_LONG_BOW)
                 || stack.isIn(RPG_SHORT_BOW)
                 || stack.isIn(RPG_RANGED_DAMAGE_WEAPON);
@@ -163,7 +206,7 @@ public final class GuardItemTags {
     }
 
     
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     public static String bardInstrumentType(ItemStack stack) {
         if (stack.isEmpty()) {
             return null;
@@ -185,7 +228,7 @@ public final class GuardItemTags {
 
     
 
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     public static String scrollPoolSuffix(ItemStack stack) {
         if (stack.isEmpty()) {
             return null;
@@ -232,7 +275,7 @@ public final class GuardItemTags {
         return scrollPoolSuffixFromPath(Registries.ITEM.getId(stack.getItem()).getPath());
     }
 
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     private static String scrollPoolSuffixFromPath(String path) {
         if (path.contains("holy_wand") || path.contains("priest")) {
             return "priest";
@@ -303,7 +346,7 @@ public final class GuardItemTags {
         return null;
     }
 
-    @org.jetbrains.annotations.Nullable
+    @Nullable
     private static String spellbladeScrollPoolSuffix(String path) {
         if (path.contains("frost") || path.contains("ice")) {
             return "frost_battlemage";

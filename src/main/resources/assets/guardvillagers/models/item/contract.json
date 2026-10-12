@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "guardvillagers:item/contract_sealed",
+    "layer1": "guardvillagers:item/contract_ribbon"
+  },
+  "overrides": [
+    { "predicate": { "guardvillagers:contract_state": 0.05 }, "model": "guardvillagers:item/contract_active" },
+    { "predicate": { "guardvillagers:contract_state": 0.15 }, "model": "guardvillagers:item/contract_cooling" },
+    { "predicate": { "guardvillagers:contract_state": 0.25 }, "model": "guardvillagers:item/contract_spent" }
+  ]
+}

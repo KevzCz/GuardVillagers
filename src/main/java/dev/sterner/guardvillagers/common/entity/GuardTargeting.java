@@ -89,6 +89,15 @@ public final class GuardTargeting {
     }
 
     
+    public static boolean isVisibleCurrentTarget(GuardEntity guard, @Nullable LivingEntity target, double rangeSq) {
+        if (target == null || !target.isAlive() || target.isSpectator() || !passesGuardFilters(guard, target)) {
+            return false;
+        }
+        return guard.canTarget(target)
+                && guard.getVisibilityCache().canSee(target)
+                && guard.squaredDistanceTo(target) <= rangeSq;
+    }
+
     public static boolean isVisibleHostileTarget(GuardEntity guard, @Nullable LivingEntity target, double rangeSq) {
         if (target == null || !target.isAlive() || target.isSpectator()) {
             return false;

@@ -35,6 +35,7 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
 
     public static final SpecialGuardRegistry INSTANCE = new SpecialGuardRegistry();
     private static final String FOLDER = "guardvillagers/special_guards";
+    private static final String KEY_DISABLED = "disabled";
     private static final int DEFAULT_SPAWN_WEIGHT = 100;
     private static final int STRUCTURE_PROBE_STEP = 16;
 
@@ -58,6 +59,9 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
                 }
                 JsonObject root = JsonParser.parseReader(new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8))
                         .getAsJsonObject();
+                if (isDisabled(root)) {
+                    return;
+                }
                 if (!isRequiredModLoaded(root)) {
                     GuardVillagers.LOGGER.debug(
                             "Skipping special guard {} (required mod '{}' not loaded)",
@@ -72,6 +76,10 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
             }
         });
         GuardVillagers.LOGGER.info("Loaded {} special guard definitions", definitions.size());
+    }
+
+    public static boolean isDisabled(JsonObject root) {
+        return root.has(KEY_DISABLED) && root.get(KEY_DISABLED).isJsonPrimitive() && root.get(KEY_DISABLED).getAsBoolean();
     }
 
     private static boolean isRequiredModLoaded(JsonObject root) {
@@ -108,7 +116,13 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
     public SpecialGuardDefinition pick(ServerWorld world, BlockPos pos, Random random) {
         List<SpecialGuardDefinition> matching = new ArrayList<>();
         for (SpecialGuardDefinition definition : definitions.values()) {
-            if (definition.spawnWeight() <= 0) {
+            if (!definition.natural()) {
+                continue;
+            }
+            if (definition.spawnChance() == null && definition.spawnWeight() <= 0) {
+                continue;
+            }
+            if (definition.spawnChance() != null && definition.spawnChance() <= 0f) {
                 continue;
             }
             if (!matches(world, pos, definition)) {
@@ -126,8 +140,25 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
             return null;
         }
 
-        int totalWeight = DEFAULT_SPAWN_WEIGHT;
+        List<SpecialGuardDefinition> chanceHits = new ArrayList<>();
+        List<SpecialGuardDefinition> weighted = new ArrayList<>();
         for (SpecialGuardDefinition definition : matching) {
+            Float chance = definition.spawnChance();
+            if (chance == null) {
+                weighted.add(definition);
+            } else if (random.nextFloat() < chance) {
+                chanceHits.add(definition);
+            }
+        }
+        if (!chanceHits.isEmpty()) {
+            return chanceHits.get(random.nextInt(chanceHits.size()));
+        }
+        if (weighted.isEmpty()) {
+            return null;
+        }
+
+        int totalWeight = DEFAULT_SPAWN_WEIGHT;
+        for (SpecialGuardDefinition definition : weighted) {
             totalWeight += definition.spawnWeight();
         }
 
@@ -137,13 +168,13 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
         }
 
         roll -= DEFAULT_SPAWN_WEIGHT;
-        for (SpecialGuardDefinition definition : matching) {
+        for (SpecialGuardDefinition definition : weighted) {
             roll -= definition.spawnWeight();
             if (roll < 0) {
                 return definition;
             }
         }
-        return matching.getLast();
+        return weighted.getLast();
     }
 
     private static boolean matches(ServerWorld world, BlockPos pos, SpecialGuardDefinition definition) {
@@ -164,7 +195,7 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
         if (!definition.biomeFilters().isEmpty()) {
             RegistryEntry<Biome> biome = world.getBiome(pos);
             boolean matched = false;
-            for (Identifier filter : definition.biomeFilters()) {
+            for (SpawnFilter filter : definition.biomeFilters()) {
                 if (matchesBiomeFilter(biome, filter)) {
                     matched = true;
                     break;
@@ -177,7 +208,7 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
 
         if (!definition.structureFilters().isEmpty()) {
             boolean matched = false;
-            for (Identifier filter : definition.structureFilters()) {
+            for (SpawnFilter filter : definition.structureFilters()) {
                 if (matchesStructureFilter(world, pos, filter, definition.structureSearchRadius())) {
                     matched = true;
                     break;
@@ -191,18 +222,17 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
         return true;
     }
 
-    private static boolean matchesStructureFilter(ServerWorld world, BlockPos pos, Identifier filter, int searchRadius) {
+    private static boolean matchesStructureFilter(ServerWorld world, BlockPos pos, SpawnFilter filter, int searchRadius) {
         StructureAccessor accessor = world.getStructureAccessor();
-        if (filter.getPath().startsWith("#")) {
-            Identifier tagId = Identifier.of(filter.getNamespace(), filter.getPath().substring(1));
-            TagKey<Structure> tag = TagKey.of(RegistryKeys.STRUCTURE, tagId);
+        if (filter.tag()) {
+            TagKey<Structure> tag = TagKey.of(RegistryKeys.STRUCTURE, filter.id());
             return anyPositionMatches(pos, searchRadius, probe ->
                     accessor.getStructureContaining(probe, tag) != StructureStart.DEFAULT);
         }
 
         Structure structure = world.getRegistryManager()
                 .get(RegistryKeys.STRUCTURE)
-                .get(filter);
+                .get(filter.id());
         if (structure == null) {
             return false;
         }
@@ -230,13 +260,10 @@ public final class SpecialGuardRegistry implements SimpleSynchronousResourceRelo
         return false;
     }
 
-    private static boolean matchesBiomeFilter(RegistryEntry<Biome> biome, Identifier filter) {
-        if (filter.getPath().startsWith("#")) {
-            Identifier tagId = Identifier.of(filter.getNamespace(), filter.getPath().substring(1));
-            TagKey<Biome> tag = TagKey.of(RegistryKeys.BIOME, tagId);
-            return biome.isIn(tag);
+    private static boolean matchesBiomeFilter(RegistryEntry<Biome> biome, SpawnFilter filter) {
+        if (filter.tag()) {
+            return biome.isIn(TagKey.of(RegistryKeys.BIOME, filter.id()));
         }
-        RegistryKey<Biome> biomeKey = RegistryKey.of(RegistryKeys.BIOME, filter);
-        return biome.matchesKey(biomeKey);
+        return biome.matchesKey(RegistryKey.of(RegistryKeys.BIOME, filter.id()));
     }
 }

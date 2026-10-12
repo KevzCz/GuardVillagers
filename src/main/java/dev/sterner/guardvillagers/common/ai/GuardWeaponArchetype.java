@@ -17,12 +17,16 @@ public final class GuardWeaponArchetype {
         UNSPECIFIED
     }
 
-    private static final Set<SpellCategory> MAGE_CAST_CATEGORIES = EnumSet.of(
+    private static final Set<SpellCategory> MELEE_EXCLUDED_CATEGORIES = EnumSet.of(
             SpellCategory.PROJECTILE,
             SpellCategory.AREA,
-            SpellCategory.SUPPORT,
-            SpellCategory.HEALING,
             SpellCategory.RANGED_BOW
+    );
+
+    private static final Set<SpellCategory> RANGED_EXCLUDED_CATEGORIES = EnumSet.of(
+            SpellCategory.PROJECTILE,
+            SpellCategory.AREA,
+            SpellCategory.HEALING
     );
 
     private static final Set<SpellCategory> MELEE_CAST_CATEGORIES = EnumSet.of(
@@ -71,7 +75,8 @@ public final class GuardWeaponArchetype {
 
         Set<SpellCategory> filtered = EnumSet.copyOf(categories);
         switch (role) {
-            case MELEE, RANGED -> filtered.removeAll(MAGE_CAST_CATEGORIES);
+            case MELEE -> filtered.removeAll(MELEE_EXCLUDED_CATEGORIES);
+            case RANGED -> filtered.removeAll(RANGED_EXCLUDED_CATEGORIES);
             case MAGE -> filtered.removeAll(MELEE_CAST_CATEGORIES);
             default -> {}
         }

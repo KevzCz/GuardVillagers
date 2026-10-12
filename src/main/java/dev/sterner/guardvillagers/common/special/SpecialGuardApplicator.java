@@ -6,9 +6,11 @@ import com.mojang.serialization.JsonOps;
 import dev.sterner.guardvillagers.GuardVillagers;
 import dev.sterner.guardvillagers.common.entity.GrantedSpell;
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.GuardSpellScrollRoller;
 import net.minecraft.entity.EquipmentSlot;
 import net.minecraft.entity.attribute.EntityAttribute;
 import net.minecraft.entity.attribute.EntityAttributeInstance;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.Registries;
@@ -26,23 +28,27 @@ import java.util.Map;
 
 public final class SpecialGuardApplicator {
 
+    public static final String NAME_PLACEHOLDER = "{name}";
+
     private SpecialGuardApplicator() {}
 
     public static void apply(GuardEntity guard, SpecialGuardDefinition definition, ServerWorld world) {
         guard.setSpecialGuardType(definition.id());
+        guard.setAppliedDefinition(definition);
         guard.setConfigOverrides(new LinkedHashMap<>(definition.configOverrides()));
         guard.setTreatAsHeroOfTheVillage(definition.heroOfTheVillage());
         guard.setHireableOverride(definition.hireable());
         guard.setFollowHeroOverride(definition.followHero());
         guard.setBlockGui(definition.blockGui());
+        guard.setFollowable(definition.followable());
         guard.setLockEquipment(definition.lockEquipment());
         guard.setImmutableEquipment(definition.immutableEquipment());
         guard.setAttackPlayers(definition.attackPlayers());
         guard.setAttackMobs(definition.attackMobs());
-        guard.setHiringItemOverride(definition.hiringItem());
+        guard.setHiringItemsOverride(definition.hiringItems());
         guard.setHiringCostOverride(definition.hiringCost());
         guard.setSkipLootTables(!definition.useLootTables());
-        guard.setApplyEquipmentOverridesAfterLoot(definition.useLootTables() && !definition.equipment().isEmpty());
+        guard.setApplyEquipmentOverridesAfterLoot(definition.useLootTables() && hasEquipment(definition));
         guard.setEquipmentDropChanceOverride(definition.dropChance());
         guard.setDeathLootTable(definition.deathLootTable());
 
@@ -57,8 +63,9 @@ public final class SpecialGuardApplicator {
             guard.setDeathDropItems(resolvedDrops);
         }
 
-        if (definition.displayName() != null) {
-            Text name = GuardTextUtils.parseColorName(definition.displayName());
+        String rawName = resolveDisplayName(definition, guard);
+        if (rawName != null) {
+            Text name = GuardTextUtils.parseColorName(rawName);
             if (name != null) {
                 guard.setCustomName(name);
                 guard.setCustomNameVisible(definition.nameVisible());
@@ -92,19 +99,94 @@ public final class SpecialGuardApplicator {
         }
 
         applyGrantedSpells(guard, definition, world);
+        applySpellPool(guard, definition, world);
+        applyEffects(guard, definition, world);
 
         guard.getSpellManager().refresh();
+        guard.setHealth(guard.getMaxHealth());
+    }
+
+    @Nullable
+    private static String resolveDisplayName(SpecialGuardDefinition definition, GuardEntity guard) {
+        String template = definition.displayName();
+        List<String> names = definition.names();
+        if (names.isEmpty()) {
+            return template;
+        }
+        String chosen = names.get(guard.getRandom().nextInt(names.size()));
+        if (template == null) {
+            return chosen;
+        }
+        return template.contains(NAME_PLACEHOLDER) ? template.replace(NAME_PLACEHOLDER, chosen) : template;
+    }
+
+    private static void applySpellPool(GuardEntity guard, SpecialGuardDefinition definition, ServerWorld world) {
+        SpecialGuardDefinition.SpellPoolEntry pool = definition.spellPool();
+        if (pool == null || world.getRandom().nextFloat() >= pool.chance()) {
+            return;
+        }
+        ItemStack scroll = GuardSpellScrollRoller.rollFromPools(guard, world, pool.pools(), pool.minTier(), pool.maxTier());
+        if (scroll == null) {
+            return;
+        }
+        guard.guardInventory.setStack(GuardEntity.SPELL_SLOT_INDEX, scroll);
+        guard.setSpellSlotStack(scroll);
+    }
+
+    private static void applyEffects(GuardEntity guard, SpecialGuardDefinition definition, ServerWorld world) {
+        if (definition.effects().isEmpty()) {
+            return;
+        }
+        List<GuardPermanentEffect> rolled = new ArrayList<>();
+        for (SpecialGuardDefinition.EffectEntry entry : definition.effects()) {
+            if (entry.chance() >= 1.0f || world.getRandom().nextFloat() < entry.chance()) {
+                rolled.add(entry.effect());
+            }
+        }
+        guard.setPermanentEffects(rolled);
     }
 
     public static void applyEquipmentOverrides(GuardEntity guard, SpecialGuardDefinition definition, ServerWorld world) {
-        if (definition.equipment().isEmpty()) {
+        if (!hasEquipment(definition)) {
             return;
         }
         applyEquipment(guard, definition, world);
     }
 
+    private static boolean hasEquipment(SpecialGuardDefinition definition) {
+        return !definition.equipment().isEmpty() || !definition.loadouts().isEmpty();
+    }
+
+    private static Map<String, JsonElement> resolveEquipment(GuardEntity guard, SpecialGuardDefinition definition) {
+        Map<String, JsonElement> merged = new LinkedHashMap<>(definition.equipment());
+        SpecialGuardDefinition.Loadout loadout = pickLoadout(definition.loadouts(), guard);
+        if (loadout != null) {
+            merged.putAll(loadout.slots());
+        }
+        return merged;
+    }
+
+    @Nullable
+    private static SpecialGuardDefinition.Loadout pickLoadout(List<SpecialGuardDefinition.Loadout> loadouts, GuardEntity guard) {
+        if (loadouts.isEmpty()) {
+            return null;
+        }
+        int total = 0;
+        for (SpecialGuardDefinition.Loadout loadout : loadouts) {
+            total += loadout.weight();
+        }
+        int roll = guard.getRandom().nextInt(total);
+        for (SpecialGuardDefinition.Loadout loadout : loadouts) {
+            roll -= loadout.weight();
+            if (roll < 0) {
+                return loadout;
+            }
+        }
+        return loadouts.getLast();
+    }
+
     private static void applyEquipment(GuardEntity guard, SpecialGuardDefinition definition, ServerWorld world) {
-        for (Map.Entry<String, JsonElement> entry : definition.equipment().entrySet()) {
+        for (Map.Entry<String, JsonElement> entry : resolveEquipment(guard, definition).entrySet()) {
             EquipmentSlot slot = equipmentSlot(entry.getKey());
             if (slot == null) {
                 continue;
@@ -171,6 +253,29 @@ public final class SpecialGuardApplicator {
                 instance.setBaseValue(entry.getValue());
             }
         }
+        applyOverrideAttribute(guard, definition, GuardEffectiveConfig.HEALTH_MODIFIER_KEY, EntityAttributes.GENERIC_MAX_HEALTH, GuardEffectiveConfig.healthModifier(guard));
+        applyOverrideAttribute(guard, definition, GuardEffectiveConfig.SPEED_MODIFIER_KEY, EntityAttributes.GENERIC_MOVEMENT_SPEED, GuardEffectiveConfig.speedModifier(guard));
+        applyOverrideAttribute(guard, definition, GuardEffectiveConfig.FOLLOW_RANGE_MODIFIER_KEY, EntityAttributes.GENERIC_FOLLOW_RANGE, GuardEffectiveConfig.followRangeModifier(guard));
+    }
+
+    private static void applyOverrideAttribute(GuardEntity guard, SpecialGuardDefinition definition, String overrideKey, RegistryEntry<EntityAttribute> attribute, double value) {
+        if (!guard.getConfigOverrides().containsKey(overrideKey) || value <= 0 || definesAttribute(definition, attribute)) {
+            return;
+        }
+        EntityAttributeInstance instance = guard.getAttributeInstance(attribute);
+        if (instance != null) {
+            instance.setBaseValue(value);
+        }
+    }
+
+    private static boolean definesAttribute(SpecialGuardDefinition definition, RegistryEntry<EntityAttribute> attribute) {
+        for (String key : definition.attributes().keySet()) {
+            Identifier attributeId = Identifier.tryParse(key);
+            if (attributeId != null && attribute.matchesId(attributeId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void applyEntityData(GuardEntity guard, SpecialGuardDefinition definition) {

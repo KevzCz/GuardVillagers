@@ -1,0 +1,274 @@
+{
+  "variants": [
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.owner.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:is_owner"
+        }
+      ],
+      "weight": 10
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.owner.2"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:is_owner"
+        }
+      ],
+      "weight": 10
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.owner.3"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:is_owner"
+        }
+      ],
+      "weight": 10
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.hero.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:is_hero"
+        }
+      ],
+      "weight": 10
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.hero.2"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:is_hero"
+        }
+      ],
+      "weight": 10
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.other.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:hired_by_other"
+        }
+      ],
+      "weight": 10
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.raid.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:during_raid"
+        }
+      ],
+      "weight": 50
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.idle.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:any_of",
+            "of": [
+              {
+                "condition": "guardvillagers:is_owner"
+              },
+              {
+                "condition": "guardvillagers:is_hero"
+              },
+              {
+                "condition": "guardvillagers:hired_by_other"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.idle.2"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:any_of",
+            "of": [
+              {
+                "condition": "guardvillagers:is_owner"
+              },
+              {
+                "condition": "guardvillagers:is_hero"
+              },
+              {
+                "condition": "guardvillagers:hired_by_other"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.idle.3"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:any_of",
+            "of": [
+              {
+                "condition": "guardvillagers:is_owner"
+              },
+              {
+                "condition": "guardvillagers:is_hero"
+              },
+              {
+                "condition": "guardvillagers:hired_by_other"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.night.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:any_of",
+            "of": [
+              {
+                "condition": "guardvillagers:is_owner"
+              },
+              {
+                "condition": "guardvillagers:is_hero"
+              },
+              {
+                "condition": "guardvillagers:hired_by_other"
+              }
+            ]
+          }
+        },
+        {
+          "condition": "rpg_dialogue:at_hour",
+          "span": "night"
+        }
+      ],
+      "weight": 3
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.hireable.1"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:any_of",
+            "of": [
+              {
+                "condition": "guardvillagers:is_owner"
+              },
+              {
+                "condition": "guardvillagers:is_hero"
+              },
+              {
+                "condition": "guardvillagers:hired_by_other"
+              }
+            ]
+          }
+        },
+        {
+          "condition": "guardvillagers:can_hire"
+        }
+      ],
+      "weight": 2
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.greeting"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:any_of",
+            "of": [
+              {
+                "condition": "guardvillagers:is_owner"
+              },
+              {
+                "condition": "guardvillagers:is_hero"
+              },
+              {
+                "condition": "guardvillagers:hired_by_other"
+              }
+            ]
+          }
+        },
+        {
+          "condition": "guardvillagers:has_greeting"
+        }
+      ],
+      "weight": 30,
+      "with": [
+        {
+          "value": "guardvillagers:greeting"
+        }
+      ]
+    }
+  ],
+  "choices": [
+    {
+      "slot": "guardvillagers:guard_menu"
+    }
+  ]
+}

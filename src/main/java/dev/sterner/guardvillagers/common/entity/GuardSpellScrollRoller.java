@@ -73,6 +73,41 @@ public final class GuardSpellScrollRoller {
     private GuardSpellScrollRoller() {}
 
     @Nullable
+    public static ItemStack rollFromPools(GuardEntity guard, ServerWorld world, List<Identifier> pools, int minTier, int maxTier) {
+        Set<Identifier> knownSpells = collectKnownSpellIds(guard);
+        List<ScrollCandidate> candidates = new ArrayList<>();
+        Set<Identifier> seenSpells = new HashSet<>();
+        for (Identifier poolId : pools) {
+            for (Identifier resolved : resolvePoolIds(poolId)) {
+                TagKey<Spell> poolTag = TagKey.of(SpellRegistry.KEY, resolved);
+                for (RegistryEntry<Spell> entry : SpellRegistry.entries(world, resolved)) {
+                    Spell spell = entry.value();
+                    if (spell.type != Spell.Type.ACTIVE || spell.tier < minTier || spell.tier > maxTier
+                            || !guard.getSpellManager().canUseFromSpellSlot(spell)) {
+                        continue;
+                    }
+                    if (!trackSpell(entry, seenSpells) || isAlreadyKnown(entry, knownSpells)) {
+                        continue;
+                    }
+                    candidates.add(new ScrollCandidate(entry, poolTag));
+                }
+            }
+        }
+        if (candidates.isEmpty()) {
+            return null;
+        }
+
+        ScrollCandidate chosen = candidates.get(guard.getRandom().nextInt(candidates.size()));
+        Item scrollItem = Registries.ITEM.get(ScrollItem.ID);
+        if (scrollItem == null) {
+            return null;
+        }
+        ItemStack stack = new ItemStack(scrollItem);
+        ScrollItem.applySpell(stack, chosen.entry(), chosen.pool());
+        return stack;
+    }
+
+    @Nullable
     public static ItemStack tryRoll(GuardEntity guard, ServerWorld world) {
         if (guard.getRandom().nextFloat() >= GuardEffectiveConfig.spellSlotScrollChance(guard)) {
             return null;
@@ -217,6 +252,9 @@ public final class GuardSpellScrollRoller {
 
     private static boolean acceptsSpell(@Nullable GuardEntity guard, Spell spell, WeaponSpellProfile profile, boolean requireSchoolMatch) {
         if (spell.type != Spell.Type.ACTIVE) {
+            return false;
+        }
+        if (guard != null && !guard.getSpellManager().canUseFromSpellSlot(spell)) {
             return false;
         }
         if (GuardEffectiveConfig.spellSlotScrollMaxTier(guard) > 0

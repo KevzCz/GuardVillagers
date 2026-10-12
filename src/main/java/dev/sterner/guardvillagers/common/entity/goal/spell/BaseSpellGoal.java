@@ -6,6 +6,7 @@ import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.ai.goal.Goal;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.util.Hand;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.spell_engine.api.spell.Spell;
 import net.spell_engine.api.spell.registry.SpellRegistry;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Optional;
 
 public abstract class BaseSpellGoal extends Goal {
+    private static final String TARGET_LOST_ABORT_MESSAGE = "✖ %s aborted: target lost (dead, out of range, not visible, or no longer a valid target)";
     protected final GuardEntity guard;
 
     protected Identifier currentSpellId;
@@ -117,6 +119,9 @@ public abstract class BaseSpellGoal extends Goal {
     }
 
     protected void abortCastWithProgressCooldown(@Nullable Spell spell) {
+        if (currentSpellId != null) {
+            GuardDebugManager.broadcast(guard, String.format(TARGET_LOST_ABORT_MESSAGE, currentSpellId.getPath()), Formatting.RED);
+        }
         if (currentSpellId != null && spell != null) {
             applySpellCooldownOnAbort(currentSpellId, spell);
             finishAbortCastVisuals(spell);
@@ -218,7 +223,7 @@ public abstract class BaseSpellGoal extends Goal {
         if (GuardDebugManager.hasWatchers(guard)) {
             GuardDebugManager.broadcast(guard,
                     "▶ " + spellId.getPath() + " via " + getClass().getSimpleName(),
-                    net.minecraft.util.Formatting.LIGHT_PURPLE);
+                    Formatting.LIGHT_PURPLE);
         }
     }
 

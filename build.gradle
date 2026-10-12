@@ -48,6 +48,8 @@ dependencies {
 	modImplementation include("maven.modrinth:midnightlib:${project.midnightlib_version}")
 	// modImplementation include("com.electronwill.night-config:core:${project.night_config_version}")
 	modImplementation "curse.maven:playeranimator-658587:7389821"
+	modCompileOnly "curse.maven:jade-324717:${project.jade_file_id}"
+	modCompileOnly files("libs/${project.rpg_dialogue_compile_jar}")
 }
 
 processResources {

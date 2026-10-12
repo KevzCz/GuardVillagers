@@ -1,0 +1,97 @@
+{
+  "variants": [
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.hire.offer"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "guardvillagers:can_afford"
+        }
+      ],
+      "with": [
+        {
+          "value": "guardvillagers:hire_cost"
+        }
+      ]
+    },
+    {
+      "pages": [
+        {
+          "translate": "guardvillagers.dialogue.hire.short"
+        }
+      ],
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "guardvillagers:can_afford"
+          }
+        }
+      ],
+      "with": [
+        {
+          "value": "guardvillagers:hire_cost"
+        }
+      ]
+    }
+  ],
+  "choices": [
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.hire.confirm"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:can_hire"
+        },
+        {
+          "condition": "guardvillagers:can_afford"
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:hire"
+        },
+        {
+          "type": "rpg_dialogue:play_sound",
+          "sound": "minecraft:entity.villager.yes"
+        },
+        {
+          "type": "rpg_dialogue:open_dialogue",
+          "dialogue": "guardvillagers:guard/hired"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.hire.back"
+      },
+      "requires": [
+        {
+          "condition": "rpg_dialogue:can_go_back"
+        }
+      ],
+      "actions": [
+        {
+          "type": "rpg_dialogue:go_back"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.hire.back"
+      },
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:can_go_back"
+          }
+        }
+      ]
+    }
+  ]
+}

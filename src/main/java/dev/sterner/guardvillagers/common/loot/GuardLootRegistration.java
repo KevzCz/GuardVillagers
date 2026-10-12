@@ -1,6 +1,9 @@
 package dev.sterner.guardvillagers.common.loot;
 
 import dev.sterner.guardvillagers.GuardVillagers;
+import dev.sterner.guardvillagers.common.contract.ContractLootEntry;
+import net.fabricmc.fabric.api.loot.v3.LootTableEvents;
+import net.minecraft.loot.LootPool;
 import net.minecraft.loot.condition.LootConditionType;
 import net.minecraft.loot.entry.LootPoolEntryType;
 import net.minecraft.registry.Registries;
@@ -36,5 +39,12 @@ public final class GuardLootRegistration {
                 GuardVillagers.id("any_items_registered"),
                 ANY_ITEMS_REGISTERED
         );
+        Registry.register(
+                Registries.LOOT_POOL_ENTRY_TYPE,
+                GuardVillagers.id("contract"),
+                ContractLootEntry.TYPE
+        );
+        LootTableEvents.MODIFY.register((key, tableBuilder, source, registries) ->
+                tableBuilder.pool(LootPool.builder().with(ContractLootEntry.builder(key.getValue()))));
     }
 }

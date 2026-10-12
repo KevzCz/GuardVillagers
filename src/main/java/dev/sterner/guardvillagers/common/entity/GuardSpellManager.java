@@ -15,6 +15,8 @@ import net.spell_engine.api.spell.container.*;
 import net.spell_engine.api.spell.registry.*;
 import net.spell_engine.api.tags.*;
 import net.spell_engine.item.*;
+import net.spell_engine.internals.target.SpellIntents;
+import net.spell_engine.internals.target.SpellTarget;
 import net.spell_power.api.*;
 
 import java.util.*;
@@ -418,6 +420,19 @@ public class GuardSpellManager {
         return container != null && !container.spell_ids().isEmpty();
     }
 
+    public boolean canUseFromSpellSlot(Spell spell) {
+        if (spell.type == Spell.Type.MODIFIER) {
+            return false;
+        }
+        Set<SpellCategory> categories = filterCategoriesBySource(spell, determineCategories(spell), ItemSource.SPELL_SLOT);
+        boolean keepsAllCategories = spell.type == Spell.Type.PASSIVE
+                || (spell.deliver != null && spell.deliver.type == Spell.Delivery.Type.STASH_EFFECT && isMeleeArchetype(spell));
+        if (!keepsAllCategories) {
+            categories = GuardWeaponArchetype.filterActiveCategories(GuardWeaponArchetype.resolve(guard.getMainHandStack()), categories);
+        }
+        return !categories.isEmpty();
+    }
+
     private void categorizeSpell(Identifier id, RegistryEntry<Spell> entry, Spell spell, ItemSource source) {
         categorizeSpell(id, entry, spell, source, false);
     }
@@ -637,6 +652,10 @@ public class GuardSpellManager {
             categories.add(SpellCategory.SUPPORT);
         }
 
+        if (hasHelpfulStatusEffectImpact(spell) && !hasDamageImpact(spell)) {
+            categories.add(SpellCategory.SUPPORT);
+        }
+
         if (hasSummonImpact(spell)) {
             categories.add(SpellCategory.SUPPORT);
         }
@@ -728,6 +747,20 @@ public class GuardSpellManager {
                 if (impact.action.apply_to_caster) {
                     return true;
                 }
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasHelpfulStatusEffectImpact(Spell spell) {
+        if (spell.impacts == null) {
+            return false;
+        }
+        for (Spell.Impact impact : spell.impacts) {
+            if (impact.action != null
+                    && impact.action.type == Spell.Impact.Action.Type.STATUS_EFFECT
+                    && SpellIntents.impactIntent(impact.action) == SpellTarget.Intent.HELPFUL) {
+                return true;
             }
         }
         return false;
@@ -1019,12 +1052,13 @@ public class GuardSpellManager {
             if (impact.action == null) {
                 continue;
             }
-            if (impact.action.type == Spell.Impact.Action.Type.STATUS_EFFECT && !impact.action.apply_to_caster) {
+            if (impact.action.type == Spell.Impact.Action.Type.STATUS_EFFECT && !impact.action.apply_to_caster
+                    && SpellIntents.impactIntent(impact.action) == SpellTarget.Intent.HARMFUL) {
                 return true;
             }
             if (impact.action.type == Spell.Impact.Action.Type.CUSTOM
                     && impact.action.custom != null
-                    && impact.action.custom.intent == net.spell_engine.internals.target.SpellTarget.Intent.HARMFUL) {
+                    && impact.action.custom.intent == SpellTarget.Intent.HARMFUL) {
                 return true;
             }
         }

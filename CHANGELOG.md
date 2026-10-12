@@ -1,1 +1,5 @@
-Updated to Spell Engine 1.10.0+
+- Added RPG Dialogue & Villager Compat
+- Added Jade compat
+- More improvements to Special Guards creation
+- Fixed a few goal issues
+- Added Contracts: can be found inside loot tables that can call upon defined guards

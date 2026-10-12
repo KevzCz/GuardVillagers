@@ -1,0 +1,52 @@
+{
+  "pages": [
+    {
+      "translate": "guardvillagers.dialogue.dismiss"
+    }
+  ],
+  "choices": [
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.dismiss.confirm"
+      },
+      "requires": [
+        {
+          "condition": "guardvillagers:is_owner"
+        }
+      ],
+      "actions": [
+        {
+          "type": "guardvillagers:dismiss"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.dismiss.back"
+      },
+      "requires": [
+        {
+          "condition": "rpg_dialogue:can_go_back"
+        }
+      ],
+      "actions": [
+        {
+          "type": "rpg_dialogue:go_back"
+        }
+      ]
+    },
+    {
+      "label": {
+        "translate": "guardvillagers.dialogue.choice.dismiss.back"
+      },
+      "requires": [
+        {
+          "condition": "rpg_dialogue:inverted",
+          "of": {
+            "condition": "rpg_dialogue:can_go_back"
+          }
+        }
+      ]
+    }
+  ]
+}

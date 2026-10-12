@@ -36,7 +36,7 @@ public final class SpellCombatTargeting {
     public static LivingEntity resolveHostileCastTarget(GuardEntity guard, float range) {
         double rangeSq = range * range;
         LivingEntity current = guard.getTarget();
-        if (GuardTargeting.isVisibleHostileTarget(guard, current, rangeSq)) {
+        if (GuardTargeting.isVisibleCurrentTarget(guard, current, rangeSq)) {
             return current;
         }
 

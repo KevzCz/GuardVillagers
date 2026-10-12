@@ -3,11 +3,15 @@ package dev.sterner.guardvillagers;
 import dev.sterner.guardvillagers.common.animation.GuardAnimationDurations;
 import dev.sterner.guardvillagers.common.command.*;
 import dev.sterner.guardvillagers.common.entity.*;
+import dev.sterner.guardvillagers.common.contract.ContractItem;
+import dev.sterner.guardvillagers.common.contract.ContractLootRegistry;
+import dev.sterner.guardvillagers.common.contract.GuardContractComponents;
 import dev.sterner.guardvillagers.common.loot.GuardLootRegistration;
 import dev.sterner.guardvillagers.common.special.SpecialGuardSpawner;
 import dev.sterner.guardvillagers.common.special.SpecialGuardRegistry;
 import dev.sterner.guardvillagers.common.network.*;
 import dev.sterner.guardvillagers.common.screenhandler.*;
+import dev.sterner.guardvillagers.compat.GuardCompat;
 import eu.midnightdust.lib.config.*;
 import net.fabricmc.api.*;
 import net.fabricmc.fabric.api.command.v2.*;
@@ -53,6 +57,7 @@ public class GuardVillagers implements ModInitializer {
     public static final EntityType<GuardEntity> GUARD_VILLAGER = Registry.register(Registries.ENTITY_TYPE, id("guard"),
             FabricEntityTypeBuilder.create(SpawnGroup.CREATURE, GuardEntity::new).dimensions(EntityDimensions.fixed(0.6f, 1.8f)).build());
 
+    public static final Item CONTRACT = new ContractItem(new Item.Settings().maxCount(1).rarity(Rarity.UNCOMMON));
     public static final Item GUARD_SPAWN_EGG = new SpawnEggItem(GUARD_VILLAGER, 5651507, 8412749, new Item.Settings());
 
     private static final List<Runnable> PENDING_GUARD_SPAWNS = new ArrayList<>();
@@ -72,11 +77,14 @@ public class GuardVillagers implements ModInitializer {
     @Override
     public void onInitialize() {
         MidnightConfig.init(MODID, GuardVillagersConfig.class);
+        GuardContractComponents.register();
         GuardLootRegistration.register();
         FabricDefaultAttributeRegistry.register(GUARD_VILLAGER, GuardEntity.createAttributes());
         
         CommandRegistrationCallback.EVENT.register(GuardDebugCommand::register);
+        CommandRegistrationCallback.EVENT.register(GuardContractCommand::register);
         Registry.register(Registries.ITEM, id("guard_spawn_egg"), GUARD_SPAWN_EGG);
+        Registry.register(Registries.ITEM, id("contract"), CONTRACT);
         Registry.register(Registries.SCREEN_HANDLER, id("guard_screen"), GUARD_SCREEN_HANDLER);
         Registry.register(Registries.SOUND_EVENT, id("entity.guard.ambient"), GUARD_AMBIENT);
         Registry.register(Registries.SOUND_EVENT, id( "entity.guard.hurt"), GUARD_HURT);
@@ -86,6 +94,7 @@ public class GuardVillagers implements ModInitializer {
         PayloadTypeRegistry.playC2S().register(GuardPatrolPacket.ID, GuardPatrolPacket.PACKET_CODEC);
         PayloadTypeRegistry.playC2S().register(GuardBuffPriorityPacket.ID, GuardBuffPriorityPacket.PACKET_CODEC);
         PayloadTypeRegistry.playC2S().register(GuardFormationPacket.ID, GuardFormationPacket.PACKET_CODEC);
+        PayloadTypeRegistry.playC2S().register(GuardDismissPacket.ID, GuardDismissPacket.PACKET_CODEC);
 
         PayloadTypeRegistry.playS2C().register(GuardFollowPacket.ID, GuardFollowPacket.PACKET_CODEC);
         PayloadTypeRegistry.playS2C().register(GuardPatrolPacket.ID, GuardPatrolPacket.PACKET_CODEC);
@@ -94,11 +103,14 @@ public class GuardVillagers implements ModInitializer {
         ServerPlayNetworking.registerGlobalReceiver(GuardPatrolPacket.ID, GuardPatrolPacket::handle);
         ServerPlayNetworking.registerGlobalReceiver(GuardBuffPriorityPacket.ID, GuardBuffPriorityPacket::handle);
         ServerPlayNetworking.registerGlobalReceiver(GuardFormationPacket.ID, GuardFormationPacket::handle);
+        ServerPlayNetworking.registerGlobalReceiver(GuardDismissPacket.ID, GuardDismissPacket::handle);
 
         ServerLifecycleEvents.SERVER_STARTING.register(server ->
                 GuardAnimationDurations.INSTANCE.reload(server.getResourceManager()));
         ResourceManagerHelper.get(ResourceType.SERVER_DATA).registerReloadListener(SpecialGuardRegistry.INSTANCE);
         ResourceManagerHelper.get(ResourceType.SERVER_DATA).registerReloadListener(GuardArmorThemeManager.INSTANCE);
+        ResourceManagerHelper.get(ResourceType.SERVER_DATA).registerReloadListener(ContractLootRegistry.INSTANCE);
+        GuardCompat.init();
 
         ItemGroupEvents.modifyEntriesEvent(ItemGroups.FUNCTIONAL).register(entries -> entries.add(GUARD_SPAWN_EGG));
 

@@ -9,6 +9,10 @@ import java.util.Map;
 
 public final class GuardEffectiveConfig {
 
+    public static final String HEALTH_MODIFIER_KEY = "healthModifier";
+    public static final String SPEED_MODIFIER_KEY = "speedModifier";
+    public static final String FOLLOW_RANGE_MODIFIER_KEY = "followRangeModifier";
+
     private GuardEffectiveConfig() {}
 
     public static float spellSlotScrollChance(@Nullable GuardEntity guard) {
@@ -20,15 +24,15 @@ public final class GuardEffectiveConfig {
     }
 
     public static double healthModifier(@Nullable GuardEntity guard) {
-        return readDouble(guard, "healthModifier", GuardVillagersConfig.healthModifier);
+        return readDouble(guard, HEALTH_MODIFIER_KEY, GuardVillagersConfig.healthModifier);
     }
 
     public static double speedModifier(@Nullable GuardEntity guard) {
-        return readDouble(guard, "speedModifier", GuardVillagersConfig.speedModifier);
+        return readDouble(guard, SPEED_MODIFIER_KEY, GuardVillagersConfig.speedModifier);
     }
 
     public static double followRangeModifier(@Nullable GuardEntity guard) {
-        return readDouble(guard, "followRangeModifier", GuardVillagersConfig.followRangeModifier);
+        return readDouble(guard, FOLLOW_RANGE_MODIFIER_KEY, GuardVillagersConfig.followRangeModifier);
     }
 
     public static float amountOfHealthRegenerated(@Nullable GuardEntity guard) {

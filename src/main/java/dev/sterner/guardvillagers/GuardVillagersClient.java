@@ -1,5 +1,6 @@
 package dev.sterner.guardvillagers;
 
+import dev.sterner.guardvillagers.client.ContractItemClient;
 import dev.sterner.guardvillagers.client.animation.GuardAnimationLoader;
 import dev.sterner.guardvillagers.client.sound.GuardSpellCastSoundClient;
 import dev.sterner.guardvillagers.common.animation.GuardAnimationDurations;
@@ -27,6 +28,7 @@ public class GuardVillagersClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         GuardSpellCastSoundClient.register();
+        ContractItemClient.register();
         ResourceManagerHelper.get(ResourceType.CLIENT_RESOURCES)
                 .registerReloadListener(GuardAnimationLoader.INSTANCE);
         ResourceManagerHelper.get(ResourceType.CLIENT_RESOURCES)

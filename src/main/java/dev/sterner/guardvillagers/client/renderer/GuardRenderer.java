@@ -44,8 +44,13 @@ public class GuardRenderer extends BipedEntityRenderer<GuardEntity, BipedEntityM
     }
 
     @Override
+    protected boolean hasLabel(GuardEntity entity) {
+        return !entity.isRenderingGuiPreview && super.hasLabel(entity);
+    }
+
+    @Override
     public void render(GuardEntity entityIn, float entityYaw, float partialTicks, MatrixStack matrixStackIn, VertexConsumerProvider bufferIn, int packedLightIn) {
-        if (entityIn.isBeingViewedInGui) return;
+        if (entityIn.isBeingViewedInGui && !entityIn.isRenderingGuiPreview) return;
         this.setModelVisibilities(entityIn);
 
         

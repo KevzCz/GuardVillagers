@@ -1,0 +1,52 @@
+{
+  "loot_tables": [
+    "minecraft:chests/village/*",
+    "minecraft:chests/simple_dungeon",
+    "minecraft:chests/pillager_outpost"
+  ],
+  "chance": 0.1,
+  "contracts": [
+    {
+      "weight": 4,
+      "guard": "guardvillagers:contract_sellsword",
+      "term_days": 2,
+      "cost": { "items": ["minecraft:emerald"], "count": 4 },
+      "uses": 2,
+      "max_active": 1,
+      "cooldown_days": 1,
+      "ribbon": 16351261
+    },
+    {
+      "weight": 3,
+      "guard": "guardvillagers:contract_crossbowman",
+      "term_days": 2,
+      "cost": { "items": ["minecraft:emerald"], "count": 3 },
+      "uses": 2,
+      "max_active": 2,
+      "cooldown_days": 1,
+      "ribbon": 16701501
+    },
+    {
+      "weight": 2,
+      "name": "&aHedge Scout",
+      "guard": {
+        "display": {
+          "name": "&aHedge Scout &7[Contract]",
+          "name_visible": true,
+          "greetings": ["Quiet feet, sharp eyes. Where to?"]
+        },
+        "behavior": { "hireable": false, "immutable_equipment": true },
+        "loot": { "use_tables": false, "drop_chance": 0 },
+        "equipment": {
+          "chest": { "id": "minecraft:leather_chestplate", "count": 1 },
+          "mainhand": { "id": "minecraft:bow", "count": 1 }
+        },
+        "attributes": { "minecraft:generic.max_health": 24 }
+      },
+      "term_days": 1,
+      "uses": 1,
+      "max_active": 1,
+      "ribbon": 6192150
+    }
+  ]
+}

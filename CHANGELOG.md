@@ -1,6 +1,1 @@
-- Added RPG Dialogue & Villager Compat
-- Added Jade compat
-- More improvements to Special Guards creation
-- Fixed a few goal issues
-- Added Contracts: can be found inside loot tables that can call upon defined guards
-- Improved the UI of the guards to fit hearts, armor values, names and buttons
+Fix barrier spells block other guards from entering

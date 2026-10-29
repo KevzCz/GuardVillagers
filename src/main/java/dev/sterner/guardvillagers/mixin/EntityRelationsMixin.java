@@ -1,8 +1,10 @@
 package dev.sterner.guardvillagers.mixin;
 
 import dev.sterner.guardvillagers.common.entity.GuardEntity;
+import dev.sterner.guardvillagers.common.entity.goal.spell.BaseHealerGoal;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
+import net.spell_engine.internals.target.EntityRelation;
 import net.spell_engine.internals.target.EntityRelations;
 import net.spell_engine.internals.target.SpellTarget;
 import org.spongepowered.asm.mixin.Mixin;
@@ -13,7 +15,13 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(EntityRelations.class)
 public class EntityRelationsMixin {
 
-    
+    @Inject(method = "getRelation", at = @At("HEAD"), cancellable = true)
+    private static void guardAlliesRelation(LivingEntity attacker, Entity target, CallbackInfoReturnable<EntityRelation> cir) {
+        if (attacker instanceof GuardEntity guard && target instanceof LivingEntity living
+                && BaseHealerGoal.isAlly(guard, living)) {
+            cir.setReturnValue(EntityRelation.ALLY);
+        }
+    }
 
     @Inject(method = "actionAllowed", at = @At("HEAD"), cancellable = true)
     private static void guardHarmfulActionAllowed(

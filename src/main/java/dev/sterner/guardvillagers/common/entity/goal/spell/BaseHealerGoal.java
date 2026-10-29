@@ -136,7 +136,7 @@ public abstract class BaseHealerGoal extends BaseSpellGoal {
                 && ownerUuid.equals(tameable.getOwnerUuid());
     }
 
-    protected static boolean isAlly(GuardEntity self, LivingEntity e) {
+    public static boolean isAlly(GuardEntity self, LivingEntity e) {
         if (e == null || !e.isAlive() || e == self) return false;
 
         if (self.isHired() && (self.isOwner(e) || isOwnerPet(self, e))) {
